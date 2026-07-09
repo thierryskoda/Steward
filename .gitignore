@@ -1,0 +1,34 @@
+node_modules
+.pnpm-store/
+dist
+.env
+.env.local
+.env.*.local
+*.log
+logs/
+.DS_Store
+
+# Electron
+**/dist-electron/
+
+# Vite
+.vite/
+dist-ssr
+
+# Coverage
+coverage/
+
+# Build/cache
+.turbo/
+.cache/
+*.tsbuildinfo
+.steward/
+
+# Runtime script output (probe reports, etc.)
+apps/runtime/scripts/logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

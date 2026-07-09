@@ -1,0 +1,36 @@
+{
+  "name": "@steward/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./runtime-defaults": {
+      "import": "./dist/runtime-defaults.js",
+      "types": "./dist/runtime-defaults.d.ts"
+    },
+    "./error": {
+      "import": "./dist/error.js",
+      "types": "./dist/error.d.ts"
+    },
+    "./routes": {
+      "import": "./dist/routes.js",
+      "types": "./dist/routes.d.ts"
+    },
+    "./schemas": {
+      "import": "./dist/schemas.js",
+      "types": "./dist/schemas.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/schemas.test.ts"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.3"
+  }
+}

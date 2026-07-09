@@ -1,0 +1,27 @@
+name: Bug report
+description: Report something that is broken or confusing.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include commands, app actions, and relevant target repo setup.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, pnpm version, and provider (`cursor_cli` or `codex_cli`).
+    validations:
+      required: true

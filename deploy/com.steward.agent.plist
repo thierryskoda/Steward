@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.steward.agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>NODE_PATH</string>
+    <string>MAIN_JS_PATH</string>
+    <string>--runtime</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>PROJECT_ROOT</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CTO_LOGS_ROOT</key>
+    <string>LOGS_DIR</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>LOGS_DIR/runtime.log</string>
+  <key>StandardErrorPath</key>
+  <string>LOGS_DIR/runtime.err</string>
+</dict>
+</plist>

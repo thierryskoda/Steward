@@ -1,0 +1,24 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "ignoreDependencies": ["tailwindcss"],
+  "workspaces": {
+    "packages/contracts": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "apps/runtime": {
+      "entry": [
+        "src/main.ts",
+        "scripts/*.ts",
+        "scripts/*.mjs",
+        "scripts/experiments/**/*.ts",
+        "src/**/*.test.ts"
+      ],
+      "project": ["src/**/*.ts", "scripts/**/*.ts"]
+    },
+    "apps/menubar": {
+      "entry": ["electron/main.ts", "electron/preload.cts"],
+      "project": ["electron/**/*.ts", "electron/**/*.cts", "src/**/*.ts", "src/**/*.tsx"]
+    }
+  }
+}

@@ -1,0 +1,16 @@
+packages:
+  - packages/*
+  - apps/runtime
+  - apps/menubar
+overrides:
+  brace-expansion: 5.0.6
+  flatted: 3.4.2
+  form-data: 4.0.6
+  path-to-regexp: 8.4.0
+  picomatch: 4.0.5
+  qs: 6.15.2
+  vite: 6.4.3
+allowBuilds:
+  better-sqlite3: true
+  electron: true
+  esbuild: true

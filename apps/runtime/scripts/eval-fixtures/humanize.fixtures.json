@@ -1,0 +1,51 @@
+[
+  {
+    "id": "product-constraints-section-guard",
+    "input": {
+      "categoryId": "product-constraints",
+      "title": "AGENTS.md section guard missing",
+      "finding": "Continual-learning may auto-update only Learned User Preferences and Learned Workspace Facts per product rule, but run-continual-learning.ts invokes runWorkspaceMutationAgent with learn-agents-memory.agent and learn-agents-memory.agent.ts enforces the two-section limit only via prompt text; there is no code that restricts or validates applied edits to those sections, so the agent could mutate other AGENTS.md content.",
+      "locations": [
+        "apps/runtime/src/features/continual-learning/run-continual-learning.ts",
+        "apps/runtime/src/features/continual-learning/learn-agents-memory.agent.ts"
+      ],
+      "options": [
+        {
+          "id": "A",
+          "name": "Structured output and runtime section-only write",
+          "technicalPlan": "Change continual-learning so the agent no longer performs file edits. 1. Define a Zod schema for agent output (e.g. two section bodies or bullet arrays) and canonical section headers in one place in continual-learning. 2. Switch this flow to runStructuredAgent; learn-agents-memory agent returns only structured content. 3. In run-continual-learning, read AGENTS.md, replace only the two sections using the canonical headers and the parsed agent output, write back. 4. On agent output safeParse failure log and skip write. 5. Add tests that assert AGENTS.md only those two sections change."
+        },
+        {
+          "id": "B",
+          "name": "Post-write validation and revert",
+          "technicalPlan": "Keep runWorkspaceMutationAgent and learn-agents-memory.agent as today. 1. Add canonical section headers in one place in continual-learning and reuse for validation. 2. Before invoking the mutation, snapshot AGENTS.md content. 3. After mutation succeeds, read AGENTS.md, parse sections by those headers, compare all content outside the two sections to the snapshot; if any difference, restore the snapshot and log. 4. Add tests that assert when the agent would change another section the file is restored."
+        }
+      ]
+    },
+    "expected": {
+      "humanSummary": "Continual learning is supposed to update only two rules-file sections, but the current flow lets an agent edit the whole file.",
+      "humanCurrentBehavior": "The agent receives instructions to stay inside two sections, then edits the file directly.",
+      "humanWhyItMatters": "A bad edit could change product rules you never meant to update.",
+      "humanEvidence": [
+        "Two-section limit lives in prompt text",
+        "No code validates the applied edit",
+        "The file mutation can touch unrelated sections"
+      ],
+      "humanDecisionQuestion": "Should code write the allowed sections directly, or should we keep agent edits with a revert check?",
+      "options": [
+        {
+          "id": "A",
+          "humanSummary": "Have the agent return structured content, then let the system replace only the two allowed sections.",
+          "humanChooseThisIf": "Choose this if section isolation matters more than preserving the current agent-editing flow.",
+          "humanTradeoff": "You get guaranteed section isolation, but maintain more code."
+        },
+        {
+          "id": "B",
+          "humanSummary": "Keep the agent-editing flow, but compare the file afterward and restore it if unrelated sections changed.",
+          "humanChooseThisIf": "Choose this if you want a smaller implementation while still catching bad edits after they happen.",
+          "humanTradeoff": "You keep the flow simpler, but rely on a post-check to catch mistakes."
+        }
+      ]
+    }
+  }
+]

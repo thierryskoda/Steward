@@ -1,0 +1,31 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "dist-electron/**"]
+    },
+    "test": {
+      "dependsOn": ["build"],
+      "outputs": []
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "outputs": []
+    },
+    "validate-env": {
+      "cache": false,
+      "outputs": []
+    },
+    "e2e": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "outputs": []
+    },
+    "target-smoke": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "outputs": []
+    }
+  }
+}

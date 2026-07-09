@@ -1,0 +1,14 @@
+node_modules
+dist
+logs
+*.log
+*.min.js
+**/target/**
+.steward/**
+coverage/
+.turbo/
+.cache/
+.vite/
+**/dist-electron/**
+*.tsbuildinfo
+.scan-result.json

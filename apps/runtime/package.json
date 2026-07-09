@@ -1,0 +1,38 @@
+{
+  "name": "@steward/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/src/main.js --runtime",
+    "validate-env": "tsx scripts/validate-env.ts",
+    "generate-categories": "tsx scripts/generate-category.ts",
+    "agent-cli-contract": "tsx scripts/agent-cli-contract.ts",
+    "agent-cli-probe": "tsx scripts/experiments/agent-cli-probe.ts",
+    "target-smoke": "pnpm run build && tsx scripts/smoke-state-db.ts && tsx scripts/smoke-runtime-http.ts",
+    "e2e": "tsx scripts/smoke-state-db.ts && tsx scripts/smoke-runtime-http.ts",
+    "e2e:provider": "tsx scripts/e2e-category-generation.ts && tsx scripts/e2e-implementation-undo.ts && tsx scripts/e2e-rejection-feedback.ts && tsx scripts/e2e-transcript-rule.ts",
+    "eval:humanize": "tsx scripts/eval-humanize-category.ts",
+    "test": "node scripts/run-test.mjs",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@steward/contracts": "workspace:*",
+    "better-sqlite3": "^12.10.0",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "jsonrepair": "^3.4.0",
+    "pino": "^9.14.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.19.11",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

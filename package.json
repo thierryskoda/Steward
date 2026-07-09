@@ -1,0 +1,55 @@
+{
+  "name": "steward",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=11"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/menubar",
+    "apps/runtime"
+  ],
+  "scripts": {
+    "dev": "sh scripts/dev.sh",
+    "doctor": "sh scripts/doctor.sh",
+    "smoke": "pnpm --filter @steward/runtime target-smoke",
+    "reset-runtime": "sh scripts/reset-runtime.sh",
+    "agent:contract": "pnpm --filter @steward/runtime agent-cli-contract",
+    "agent:probe": "pnpm --filter @steward/runtime agent-cli-probe",
+    "preinstall": "node scripts/enforce-package-manager.cjs",
+    "check:lockfiles": "node scripts/check-forbidden-lockfiles.cjs",
+    "verify": "bash scripts/verify.sh",
+    "verify:fast": "bash scripts/verify.sh --fast",
+    "verify:provider": "RUN_PROVIDER_CHECKS=1 bash scripts/verify.sh --provider",
+    "verify:changed": "sh scripts/test-changed.sh",
+    "verify:ci": "pnpm verify:fast",
+    "build": "pnpm turbo run build",
+    "test": "pnpm turbo run test",
+    "typecheck": "pnpm turbo run typecheck",
+    "e2e": "pnpm turbo run e2e",
+    "e2e:provider": "pnpm --filter @steward/runtime e2e:provider",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check:unused": "knip --include files,dependencies,devDependencies,duplicates",
+    "fix:unused": "knip --fix",
+    "delete:unused": "knip --fix --allow-remove-files --format",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.19.11",
+    "eslint": "^10.6.0",
+    "eslint-config-prettier": "^10.1.8",
+    "knip": "^6.25.0",
+    "prettier": "^3.9.4",
+    "tsx": "^4.23.0",
+    "turbo": "^2.10.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.63.0"
+  }
+}
