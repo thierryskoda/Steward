@@ -14,6 +14,20 @@ The menubar starts one runtime process per selected target project. The runtime 
 
 Global runtime connection data lives outside the repo under `~/.steward/`, including registry entries, per-project endpoints, HTTP tokens, and logs.
 
+### Service Repository vs. Target Projects
+
+This repository contains the Steward service: the menubar app, runtime, and shared contracts. It is separate from the target repositories Steward analyzes.
+
+The menubar is the sole runtime orchestrator. It adds, selects, starts, and stops projects through the app. Project roots are passed to runtimes when they start; they are not configured through `.env`.
+
+### Runtime Artifacts
+
+- **Global registry:** `~/.steward/registry.json` records running runtimes so the menubar can discover them.
+- **Per-project connection data:** `~/.steward/projects/<projectKey>/` contains the runtime PID, HTTP token, endpoint, and runtime metadata.
+- **Target-project state:** `.steward/state.db` is the persistent workflow source of truth for that project.
+- **Temporary agent files:** `.steward/tmp/runs/<requestId>/` contains run-scoped scratch files and is cleaned by the runtime.
+- **Logs:** `~/.steward/logs` is the default location; the development launcher can use this repository's `logs/` directory instead.
+
 ## Workflow
 
 The main finding workflow is:

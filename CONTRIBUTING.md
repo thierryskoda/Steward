@@ -39,6 +39,26 @@ Provider-backed checks are opt-in because they can invoke real agent CLIs and mo
 pnpm verify:provider
 ```
 
+### Validation Commands
+
+- `pnpm verify:changed` — preferred development loop; verifies affected workspaces and falls back to the fast gate when no Git base is available.
+- `pnpm verify:ci` — canonical public GitHub Actions gate.
+- `pnpm verify` — complete deterministic local gate, including smoke checks.
+- `pnpm verify:provider` — opt-in checks that can invoke real agent CLIs and model providers.
+- `pnpm build` — build the workspace graph.
+- `pnpm test` — run the workspace test graph.
+- `pnpm e2e` — run deterministic runtime end-to-end scenarios.
+- `pnpm e2e:provider` — run opt-in provider-backed end-to-end scenarios.
+- `pnpm smoke` — validate runtime state-database setup in isolation.
+
+To run one runtime test, pass its path from `apps/runtime`:
+
+```bash
+pnpm test -- src/core/env.test.ts
+```
+
+Substring arguments such as `env.test` are unreliable and can run the full suite.
+
 ## Project Rules
 
 - Read `AGENTS.md` before larger changes; it is the detailed project contract.
@@ -46,6 +66,10 @@ pnpm verify:provider
 - Preserve the human approval gate before implementation side effects.
 - Do not commit `.env`, `.steward/`, logs, generated build output, or local app data.
 - Prefer simple current behavior over speculative compatibility layers.
+
+## Agent Workflow Helpers
+
+The repository includes `.cursor/commands/` and `.agents/skills/` for maintainers working with coding agents. They are not needed to run Steward, but changes to them must stay aligned with the actual scripts, verification flow, and project constraints.
 
 ## Pull Requests
 
