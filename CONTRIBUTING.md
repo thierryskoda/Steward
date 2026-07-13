@@ -4,11 +4,9 @@ Thanks for helping improve `steward`.
 
 ## Setup
 
-Use the pinned toolchain from `package.json`:
+Install Node.js 22 or newer and pnpm 11 or newer, then run:
 
 ```bash
-corepack enable
-corepack prepare pnpm@11.7.0 --activate
 pnpm install
 pnpm doctor
 ```

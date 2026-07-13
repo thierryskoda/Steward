@@ -1,0 +1,153 @@
+I Built an AI to Maintain the Software I Build With AI
+
+AI coding agents are excellent at producing code. They are less reliable at preserving the decisions that make a codebase coherent over time.
+
+While working on multiple projects with AI, I kept seeing the same technical debt accumulate. Agents would forget practices I cared about, miss cleanup work, or make locally reasonable changes that conflicted with the wider architecture.
+
+Repeating every rule in every prompt does not scale. Auditing every project by hand does not scale either.
+
+So I built Steward: a local-first maintenance system that uses AI to help preserve the quality of AI-built software.
+
+1. The problem is memory, not generation
+
+Most coding agents optimize for the task in front of them. They can implement a feature quickly, but they do not naturally maintain a durable understanding of every architectural constraint, product boundary, testing expectation, and previous decision in a repository.
+
+The result is gradual drift. A composition rule gets bypassed. A temporary compatibility path becomes permanent. Two parts of the application independently solve the same problem. Documentation stops matching behavior. Tests cover implementation details while missing the risky path.
+
+Steward treats this as a continuous maintenance problem. It runs beside a project, watches for repository activity, compares the codebase with that project’s own rules, and turns meaningful drift into focused findings.
+
+It is not an autonomous repository rewriter. It is a control loop around detection, planning, approval, implementation, and feedback.
+
+2. The project defines what “good” means
+
+Generic code-review advice is rarely enough. “Improve the architecture” means very different things in a prototype, a Kubernetes operator, and a local desktop application.
+
+Steward therefore starts from sources of truth already inside the repository. A project can point it at files such as AGENTS.md, engineering guidelines, architecture documents, and product context.
+
+The distinction between rules and context matters.
+
+Rules describe how the code should be built: dependency direction, state ownership, error contracts, testing standards, or security constraints.
+
+Project context explains why the product exists and which boundaries are intentional. Some decisions cannot be reconstructed safely by reading code alone.
+
+Steward extracts actionable maintenance categories from those sources rather than relying on a universal hard-coded checklist. If one project cares deeply about local-first storage and another cares about Kubernetes reconciliation safety, they should not receive the same review.
+
+The repository remains the authority. The AI is there to interpret and apply its constraints.
+
+3. From repository activity to one defensible finding
+
+Steward’s runtime watches Git state, but it does not launch a scan on every keystroke. It waits for the repository to settle, coalesces overlapping activity, excludes configured paths, and then starts proactive maintenance work.
+
+Consider a representative rule: the application must have one composition root, and feature modules must not wire application-level dependencies themselves.
+
+For that rule, Steward creates a conversation and asks an agent to generate concrete questions for inspecting the repository. A detection stage then searches for the single highest-impact violation—or returns no finding.
+
+If it finds something, the next stage extracts implementation constraints from the project’s complete rule context. Another stage produces one or two technically meaningful solutions.
+
+One option means the constraints point strongly toward a single fix. Two options mean there is a real tradeoff worth exposing: perhaps a minimal local repair versus a broader boundary change.
+
+When multiple options exist, Steward translates the technical plans into a human-readable decision: what is happening now, why it matters, when to choose each option, and what tradeoff each one creates.
+
+Before anything reaches the inbox, a separate quality gate checks the proposed finding against the rule, project context, and evidence from the referenced files. It can accept the finding, repair it once, or drop it.
+
+Accepted findings are also deduplicated using the category, normalized problem, and affected locations. The purpose is to keep the inbox from becoming a collection of raw model opinions.
+
+This pipeline requires more agent work than a single “review this repository” prompt. The tradeoff is intentional: each stage has a narrower responsibility, and weak findings can be rejected before they become somebody else’s problem.
+
+4. Human judgment is an explicit state transition
+
+“Human in the loop” is often used without defining where the human actually has control.
+
+In Steward, approval is part of the workflow state machine.
+
+A project can require approval for every finding. It can also use a trust mode in which a finding is automatically approved only when planning produces one viable option. When two different solutions remain, someone must choose.
+
+That boundary is important. The system can automate an obvious cleanup without pretending that a product or architecture decision is obvious.
+
+Once approved, a finding moves through explicit states: approved, claimed, agent running, and then implemented or failed. Invalid transitions are rejected rather than inferred from combinations of loosely related flags.
+
+The implementation worker claims an item before starting it. It resumes the same conversation used for detection and planning, receives the selected technical plan and affected locations, and is told to make minimal edits and run relevant checks.
+
+Reusing the same conversation reduces a subtle source of failure: the implementation agent does not need to reconstruct the reasoning that produced the finding. The workflow carries that context forward deliberately.
+
+5. Local-first is an architectural constraint
+
+Steward runs one local runtime for each selected project. Its desktop menubar app starts and stops those runtimes, displays findings and rules, exposes project settings, and tracks work across pending, implementing, implemented, and failed columns.
+
+Persistent workflow state lives inside the target repository at .steward/state.db. That SQLite database contains project configuration, findings, rule proposals, generated snapshots, checkpoints, and workflow state.
+
+Temporary agent artifacts are scoped to an individual run under .steward/tmp/runs and removed when the run finishes. Stale run directories are cleaned up after crashes.
+
+Runtime connection metadata, bearer tokens, and logs live outside the project. The HTTP API is local-only, and mutating routes require authentication. Agent input/output logging is disabled by default because prompts may contain sensitive repository context.
+
+Local-first does not mean every model invocation necessarily happens on the device. The selected agent provider still has its own execution and data policies. It means Steward does not require a cloud database or hosted control plane to own the project’s maintenance state.
+
+That keeps the workflow inspectable, project-scoped, and recoverable without introducing another remote system that must be trusted with the repository’s operational history.
+
+6. Failure handling is part of the product
+
+A maintenance agent can be interrupted after claiming work but before making a change. It can also stop halfway through an edit, time out, return malformed output, or finish after the repository context has changed.
+
+Steward models these situations instead of hiding them behind a success message.
+
+A claimed item that was interrupted before execution can return to the approved queue. An item interrupted while an agent was running is marked failed because partial side effects may already exist. Periodic stale-work sweeps apply the same distinction.
+
+If an implementation agent reaches an idle timeout, Steward makes one continuation attempt in the same conversation instead of starting over with no context.
+
+Findings also carry a fingerprint derived from the current rules, project context, and contents of the affected locations. When those inputs change, pending and approved findings become stale.
+
+A revalidation agent then decides whether the finding can be kept, must be patched, or is no longer valid. Steward performs this check when source context changes and again immediately before implementation.
+
+That prevents an old but previously approved plan from being applied blindly to a repository that has moved on.
+
+Implemented findings can also be undone. The undo agent resumes the original workflow conversation and is restricted to files reported by the implementation step. If a file has changed since the original work, the agent is told to skip it rather than overwrite someone else’s edits.
+
+The goal is not to claim that agent mutations are perfectly reversible. It is to give recovery a bounded, visible path.
+
+7. The system can learn from conversations and rejection
+
+Steward separates two types of learning that are often mixed together: engineering rules and project knowledge.
+
+When its optional rules workflow is enabled, the shared transcript ingestion pipeline can inspect Cursor conversation messages for durable guidance. A rule-capture agent decides whether a message contains a reusable instruction, checks it against existing rules and proposals, and creates a reviewable rule proposal.
+
+Approved proposals are written into the project’s Cursor rules directory. They are not silently turned into permanent standards.
+
+Rejection is also useful information. When someone rejects a finding and explains why, Steward can derive a scoped option hint for similar future findings. With the rules workflow enabled, a sufficiently clear rejection can also become a new rule proposal.
+
+The point is not to learn from every click. It is to preserve explicit human judgment so the same mismatch is less likely to return.
+
+Continual learning handles a different category of knowledge. After a transcript has been idle, it can extract durable facts that are difficult to infer from code and update only the “Learned Project Context” section of a configured context file.
+
+That agent is explicitly forbidden from adding coding rules, secrets, temporary incidents, branch names, or file-local details. If the conversation contains no durable project knowledge, it should make no edit.
+
+Rules explain how to build. Project context explains why the system is shaped this way. Keeping them separate makes both more useful.
+
+8. What exists today—and what does not
+
+Steward is pre-1.0 and in active development. It currently runs from source.
+
+The desktop application manages local projects, configuration, runtime status, findings, rules, scanning, and implementation progress. The runtime supports Cursor Agent, Codex CLI, and Claude Code as execution providers.
+
+The current deterministic suites pass 165 runtime tests and 14 desktop tests. Provider-backed end-to-end scenarios are separate and opt-in because they invoke real agent CLIs and model calls.
+
+I am not calling it production-ready.
+
+One important limitation is the meaning of “implemented.” The implementation agent is instructed to run relevant checks and report them, and a separate evaluator classifies whether the mutation succeeded. But the workflow does not yet require independent deterministic proof—such as mandatory tests, type checking, smoke checks, and verified changed files—before assigning the implemented state.
+
+Making that evidence visible and defensible is an active product direction.
+
+Some learning features are optional, and the rule-application path is currently specific to Cursor rule files. Hosted execution is deliberately out of scope for now. The security, privacy, and operational tradeoffs would need to justify adding it.
+
+9. The larger idea
+
+The most interesting part of Steward is not another coding agent.
+
+It is the control system around the agent: the repository defines the standards, the scanner finds drift, the planner exposes real tradeoffs, the human chooses when judgment is required, the worker executes the decision, and durable local state records what happened.
+
+AI makes it cheaper to produce software. That also makes it easier to produce inconsistency faster.
+
+The next layer of tooling cannot focus only on generating more code. It also needs to preserve intent: the rules, boundaries, context, and decisions that keep a project coherent after the prompt is gone.
+
+That is what I am building with Steward.
+
+https://github.com/thierryskoda/Steward

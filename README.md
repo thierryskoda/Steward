@@ -40,7 +40,7 @@ Steward is in active development and currently runs from source. The desktop app
 ### Prerequisites
 
 - Node.js 22 or newer
-- Corepack, using the pnpm version pinned by this repository
+- [pnpm 11 or newer](https://pnpm.io/installation)
 - At least one supported agent CLI on your `PATH`:
   - [Cursor Agent CLI](https://docs.cursor.com/en/cli/overview) as `agent` (default)
   - [Codex CLI](https://learn.chatgpt.com/docs/codex/cli) as `codex`
@@ -49,8 +49,6 @@ Steward is in active development and currently runs from source. The desktop app
 ### Run Steward
 
 ```bash
-corepack enable
-corepack prepare pnpm@11.7.0 --activate
 pnpm install
 pnpm doctor
 pnpm dev
