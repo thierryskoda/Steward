@@ -11,8 +11,7 @@ export function readScanningStatus(): IScanningStatus {
   let row: IScanningStatusRow | undefined;
   try {
     row = getRuntimeDb().prepare("SELECT status FROM scanning_status WHERE id = 'active'").get() as
-      | IScanningStatusRow
-      | undefined;
+      IScanningStatusRow | undefined;
   } catch (err) {
     throw new AppError(
       "Failed to read scanning status from database",
