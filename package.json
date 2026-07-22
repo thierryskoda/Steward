@@ -15,7 +15,8 @@
   ],
   "scripts": {
     "dev": "sh scripts/dev.sh",
-    "doctor": "sh scripts/doctor.sh",
+    "doctor": "bash scripts/doctor.sh",
+    "test:doctor": "bash scripts/doctor.test.sh",
     "smoke": "pnpm --filter @steward/runtime target-smoke",
     "reset-runtime": "sh scripts/reset-runtime.sh",
     "agent:contract": "pnpm --filter @steward/runtime agent-cli-contract",

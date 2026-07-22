@@ -19,6 +19,20 @@ check 'command -v pnpm >/dev/null' "pnpm present"
 check '[[ -f packages/contracts/package.json ]]' "contracts workspace present"
 check '[[ -f apps/runtime/package.json ]]' "runtime workspace present"
 
+SUPPORTED_AGENT_CLIS=()
+for CLI in agent codex claude; do
+  if command -v "$CLI" >/dev/null 2>&1; then
+    SUPPORTED_AGENT_CLIS+=("$CLI")
+  fi
+done
+
+if [[ ${#SUPPORTED_AGENT_CLIS[@]} -eq 0 ]]; then
+  echo "FAIL: supported agent CLI present (install agent, codex, or claude)"
+  FAIL=1
+else
+  echo "OK: supported agent CLI present (${SUPPORTED_AGENT_CLIS[*]})"
+fi
+
 if [[ -f .env ]]; then
   if OUT=$(pnpm --filter @steward/runtime validate-env 2>&1); then
     echo "OK: env valid"

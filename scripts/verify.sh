@@ -27,6 +27,7 @@ run_fast_pre_steps() {
   run_step "format" "pnpm format:check" || return 1
   run_step "lint" "pnpm lint" || return 1
   run_step "unused" "pnpm check:unused" || return 1
+  run_step "doctor" "pnpm test:doctor" || return 1
 }
 
 run_fast_steps() {
