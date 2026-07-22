@@ -56,7 +56,7 @@ export function createExpressApp(args: {
   app.use(requestIdMiddleware());
   app.use(requestLogMiddleware());
 
-  app.options("*", (req, res) => {
+  app.options("/{*splat}", (req, res) => {
     void req;
     res.status(204).end();
   });
