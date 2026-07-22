@@ -5,13 +5,7 @@
 import type { IRuntimeStatusResponse } from "@steward/contracts/schemas";
 
 export type ShellState =
-  | "noProjects"
-  | "noSelection"
-  | "starting"
-  | "needsConfig"
-  | "ready"
-  | "startupError"
-  | "stopped";
+  "noProjects" | "noSelection" | "starting" | "needsConfig" | "ready" | "startupError" | "stopped";
 
 export function getShellState(
   projectsCount: number,

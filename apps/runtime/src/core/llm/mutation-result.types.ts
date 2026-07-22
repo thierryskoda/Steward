@@ -1,19 +1,8 @@
 export type IMutationOutcome =
-  | "succeeded"
-  | "failed"
-  | "timeout"
-  | "idle_timeout"
-  | "spawn_error"
-  | "killed"
-  | "cancelled";
+  "succeeded" | "failed" | "timeout" | "idle_timeout" | "spawn_error" | "killed" | "cancelled";
 
 export type IEvaluatedFailureReason =
-  | "tool-rejected"
-  | "spawn-error"
-  | "timeout"
-  | "no-write"
-  | "unclear"
-  | "evaluator-error";
+  "tool-rejected" | "spawn-error" | "timeout" | "no-write" | "unclear" | "evaluator-error";
 
 import type { ITranscriptEntry } from "./agent-transcript-capture.js";
 
