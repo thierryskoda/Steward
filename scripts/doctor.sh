@@ -14,8 +14,32 @@ check() {
   fi
 }
 
-check 'command -v node >/dev/null' "node present"
-check 'command -v pnpm >/dev/null' "pnpm present"
+check_minimum_major() {
+  local command_name="$1"
+  local display_name="$2"
+  local minimum_major="$3"
+
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "FAIL: $display_name present"
+    FAIL=1
+    return
+  fi
+
+  local version
+  version=$("$command_name" --version)
+  local major="${version#v}"
+  major="${major%%.*}"
+
+  if [[ "$major" =~ ^[0-9]+$ ]] && ((major >= minimum_major)); then
+    echo "OK: $display_name $minimum_major or newer ($version)"
+  else
+    echo "FAIL: $display_name $minimum_major or newer required (found $version)"
+    FAIL=1
+  fi
+}
+
+check_minimum_major node "Node.js" 22
+check_minimum_major pnpm "pnpm" 11
 check '[[ -f packages/contracts/package.json ]]' "contracts workspace present"
 check '[[ -f apps/runtime/package.json ]]' "runtime workspace present"
 
