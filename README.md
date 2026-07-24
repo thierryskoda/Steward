@@ -41,6 +41,7 @@ Steward is in active development and currently runs from source. The desktop app
 
 - Node.js 22 or newer
 - [pnpm 11 or newer](https://pnpm.io/installation)
+- Git
 - At least one supported agent CLI on your `PATH`:
   - [Cursor Agent CLI](https://docs.cursor.com/en/cli/overview) as `agent` (default)
   - [Codex CLI](https://learn.chatgpt.com/docs/codex/cli) as `codex`
