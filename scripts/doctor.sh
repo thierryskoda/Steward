@@ -40,6 +40,14 @@ check_minimum_major() {
 
 check_minimum_major node "Node.js" 22
 check_minimum_major pnpm "pnpm" 11
+
+if GIT_VERSION=$(git --version 2>/dev/null); then
+  echo "OK: Git present ($GIT_VERSION)"
+else
+  echo "FAIL: Git present (install Git and ensure git is on PATH)"
+  FAIL=1
+fi
+
 check '[[ -f packages/contracts/package.json ]]' "contracts workspace present"
 check '[[ -f apps/runtime/package.json ]]' "runtime workspace present"
 
