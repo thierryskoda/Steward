@@ -22,7 +22,7 @@ import {
   ImplementationResultSchema,
   UndoResultSchema,
 } from "./schemas.js";
-import { ROUTES, buildRoute } from "./routes.js";
+import { ROUTES, ROUTES_KEYS_SKIP_STARTUP_ASSERTION, buildRoute } from "./routes.js";
 
 function humanProblemFields(): {
   humanSummary: string;
@@ -118,6 +118,9 @@ describe("schemas.test.ts", () => {
       assert.strictEqual(ROUTES.SCANNING_STATUS.method, "get");
       assert.strictEqual(ROUTES.SCANNING_RESUME.path, "/v1/scanning/resume");
       assert.strictEqual(ROUTES.SCANNING_PAUSE.path, "/v1/scanning/pause");
+    });
+    it("requires every canonical route to participate in startup mount validation", () => {
+      assert.deepStrictEqual(ROUTES_KEYS_SKIP_STARTUP_ASSERTION, []);
     });
   });
 

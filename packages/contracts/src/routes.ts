@@ -31,8 +31,8 @@ const ROUTE_SPECS = {
 
 export const ROUTES = ROUTE_SPECS;
 
-/** Keys excluded from startup "every route mounted" assertion (e.g. POST shutdown, not-yet-implemented). */
-export const ROUTES_KEYS_SKIP_STARTUP_ASSERTION: (keyof typeof ROUTES)[] = ["RUNTIME_SHUTDOWN"];
+/** Deliberate startup mount-validation exemptions. Keep empty while every route is implemented. */
+export const ROUTES_KEYS_SKIP_STARTUP_ASSERTION: (keyof typeof ROUTES)[] = [];
 
 export type IRoutePath = (typeof ROUTES)[keyof typeof ROUTES]["path"];
 
