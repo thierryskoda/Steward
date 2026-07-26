@@ -78,7 +78,9 @@ describe("createExpressApp", () => {
 
       expect(response.status).toBe(204);
       expect(response.headers.get("access-control-allow-origin")).toBe("http://localhost:1420");
-      expect(response.headers.get("access-control-allow-methods")).toBe("GET, POST, OPTIONS");
+      expect(response.headers.get("access-control-allow-methods")).toBe(
+        "GET, POST, PATCH, OPTIONS"
+      );
     } finally {
       await close(server);
     }
