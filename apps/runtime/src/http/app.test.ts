@@ -73,6 +73,7 @@ describe("createExpressApp", () => {
         headers: {
           Origin: "http://localhost:1420",
           "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "authorization,content-type,x-request-id",
         },
       });
 
@@ -80,6 +81,9 @@ describe("createExpressApp", () => {
       expect(response.headers.get("access-control-allow-origin")).toBe("http://localhost:1420");
       expect(response.headers.get("access-control-allow-methods")).toBe(
         "GET, POST, PATCH, OPTIONS"
+      );
+      expect(response.headers.get("access-control-allow-headers")).toBe(
+        "Authorization, Content-Type, X-Request-Id"
       );
     } finally {
       await close(server);
