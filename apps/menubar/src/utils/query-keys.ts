@@ -43,6 +43,18 @@ export const queryKeys = {
       "scanning-status",
       projectRoot,
     ],
+    documentationRefreshStatus: (
+      projectRoot: string
+    ): readonly ["settings", "documentation-refresh-status", string] => [
+      "settings",
+      "documentation-refresh-status",
+      projectRoot,
+    ],
+    nextCommitment: (projectRoot: string): readonly ["settings", "next-commitment", string] => [
+      "settings",
+      "next-commitment",
+      projectRoot,
+    ],
     logsDir: (): readonly ["settings", "logs-dir"] => ["settings", "logs-dir"],
     rulesSnapshot: (projectRoot: string): readonly ["settings", "rules-snapshot", string] => [
       "settings",

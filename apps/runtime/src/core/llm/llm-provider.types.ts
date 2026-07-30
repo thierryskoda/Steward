@@ -42,6 +42,15 @@ export type ILLMRequestContext = {
   itemId?: string;
 };
 
+/** One trusted, read-only stdio MCP server exposed only for a structured run. */
+export type IReadOnlyMcpServer = {
+  name: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  enabledTools: string[];
+};
+
 /** Lifecycle callbacks for mutation runs (queue/start/finish). */
 export type ILLMLifecycleCallbacks = {
   onQueued?: () => void;
@@ -50,13 +59,19 @@ export type ILLMLifecycleCallbacks = {
 };
 
 /** Args for structured (ask-mode) execution. */
+import type { IJsonSchema } from "./json-schema.types.js";
+
 export type ILLMStructuredRunArgs = {
   prompt: string;
   model: string;
   workspace: string;
+  outputJsonSchema: IJsonSchema | undefined;
   resumeConversationId?: string;
   agentTmpDir?: string;
+  isolatedCodexHome?: string;
+  readOnlyMcpServer?: IReadOnlyMcpServer;
   requestId?: string;
+  deadlineAt: number | undefined;
 };
 
 /** Args for workspace-mutation (force-mode) execution. */

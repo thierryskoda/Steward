@@ -73,8 +73,10 @@ export function createCursorCliLlmProvider(): ILLMProvider {
         workspace: args.workspace,
         resumeChatId: args.resumeConversationId,
         executionMode: "ask",
+        outputJsonSchema: undefined,
         agentTmpDir: args.agentTmpDir,
         requestId: args.requestId,
+        deadlineAt: args.deadlineAt,
       });
       return cliResultToLlmRunResult(cliResult);
     },
@@ -86,10 +88,12 @@ export function createCursorCliLlmProvider(): ILLMProvider {
         workspace: args.workspace,
         resumeChatId: args.resumeConversationId,
         executionMode: "force",
+        outputJsonSchema: undefined,
         lifecycleCallbacks: toCliLifecycle(args.lifecycleCallbacks),
         requestContext: toCliRequestContext(args.requestContext),
         agentTmpDir: args.agentTmpDir,
         requestId: args.requestId,
+        deadlineAt: undefined,
       });
       return cliResultToLlmRunResult(cliResult);
     },

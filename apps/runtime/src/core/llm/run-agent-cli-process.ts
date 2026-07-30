@@ -12,6 +12,7 @@ import { AGENT_CLI_JSON_PARSE_FAILED, AGENT_PROMPT_TOO_LARGE } from "../runtime-
 import { ERR_AGENT_FAILED } from "../error-codes.js";
 import {
   AGENT_QUEUE_AGE_CAP_REJECTED,
+  AGENT_QUEUE_DEADLINE_REJECTED,
   AGENT_QUEUE_ENCLAIMED,
   AGENT_QUEUE_FINISHED,
   AGENT_QUEUE_HEALTH_ALERT,
@@ -34,7 +35,11 @@ import {
   executeClaudeCodeCliProcess,
   type IClaudeCodeCliSession,
 } from "./claude-code-cli-process-runner.js";
-import { buildCodexCliArgs, executeCodexCliProcess } from "./codex-cli-process-runner.js";
+import {
+  buildCodexCliArgs,
+  executeCodexCliProcess,
+  type ICodexStructuredSecurityMode,
+} from "./codex-cli-process-runner.js";
 import type {
   IAgentCliResult,
   IAgentProcessConfig,
@@ -42,6 +47,8 @@ import type {
 } from "./agent-cli-result.types.js";
 import { parseClaudeCodeCliJsonToAgentResult } from "./claude-code-cli-json-parser.js";
 import { parseCodexCliJsonlToAgentResult } from "./codex-cli-jsonl-parser.js";
+import type { IJsonSchema } from "./json-schema.types.js";
+import type { IReadOnlyMcpServer } from "./llm-provider.types.js";
 
 export type {
   IAgentCliResult,
@@ -87,6 +94,10 @@ type IAgentProcessArgs = {
   requestContext?: IAgentRequestContext;
   requestId?: string;
   agentTmpDir?: string;
+  outputJsonSchema?: IJsonSchema;
+  codexSecurityMode?: ICodexStructuredSecurityMode;
+  isolatedCodexHome?: string;
+  readOnlyMcpServer?: IReadOnlyMcpServer;
 };
 
 const QUEUE_DEPTH_WARN_THRESHOLD = 25;
@@ -144,6 +155,37 @@ const CANCELLED_RESULT: IAgentCliResult = {
   code: null,
   reason: "shutdown_cancelled",
 };
+
+function deadlineTimeoutResult(args: {
+  enclaimedAt: number;
+  now: number;
+  deadlineAt: number;
+}): IAgentCliResult {
+  const diagnostic = "Agent request exceeded its absolute wall-time deadline.";
+  return {
+    stdout: "",
+    stderr: diagnostic,
+    rawStdout: "",
+    rawStderr: diagnostic,
+    code: null,
+    reason: "timeout",
+    runtimeMs: args.now - args.enclaimedAt,
+  };
+}
+
+function constrainConfigToDeadline(args: {
+  config: IAgentProcessConfig;
+  now: number;
+}): IAgentProcessConfig | null {
+  const deadlineAt = args.config.deadlineAt;
+  if (deadlineAt === undefined) return args.config;
+  const remainingMs = deadlineAt - args.now;
+  if (remainingMs <= args.config.killGraceMs) return null;
+  return {
+    ...args.config,
+    timeoutMs: Math.min(args.config.timeoutMs, remainingMs - args.config.killGraceMs),
+  };
+}
 
 function logParseFailure(args: {
   requestId: string | undefined;
@@ -215,8 +257,16 @@ async function executeAgentCliProcess(
   requestId: string
 ): Promise<IAgentCliResult> {
   const provider = args.provider ?? "cursor_agent";
+  const codexSecurityMode = args.codexSecurityMode;
   let rawOrCancelled: IRawAgentCliRunResult | IAgentCliResult;
   if (provider === "codex_cli") {
+    if (codexSecurityMode === undefined) {
+      throw new AppError(
+        "Codex CLI execution requires an explicit security mode.",
+        ERR_AGENT_FAILED,
+        { reason: "missing_codex_security_mode" }
+      );
+    }
     rawOrCancelled = await executeCodexCliProcess({
       prompt: args.prompt,
       model: args.model,
@@ -224,7 +274,11 @@ async function executeAgentCliProcess(
       config: args.config,
       resumeSessionId: args.resumeChatId,
       executionMode: args.executionMode,
+      outputJsonSchema: args.outputJsonSchema,
+      securityMode: codexSecurityMode,
       agentTmpDir: args.agentTmpDir,
+      isolatedCodexHome: args.isolatedCodexHome,
+      readOnlyMcpServer: args.readOnlyMcpServer,
       requestId,
       requestContext: args.requestContext,
       onAbortReady,
@@ -310,12 +364,22 @@ async function executeAgentCliProcess(
       let logArgs: string[];
       let cmd: string;
       if (provider === "codex_cli") {
+        if (codexSecurityMode === undefined) {
+          throw new AppError(
+            "Codex CLI parse diagnostics require an explicit security mode.",
+            ERR_AGENT_FAILED,
+            { reason: "missing_codex_security_mode" }
+          );
+        }
         logArgs = buildCodexCliArgs({
           prompt: args.prompt,
           model: args.model,
           workspace: args.workspace,
           executionMode: args.executionMode,
           resumeSessionId: args.resumeChatId,
+          outputSchemaPath: undefined,
+          securityMode: codexSecurityMode,
+          readOnlyMcpServer: args.readOnlyMcpServer,
         }).logArgs;
         cmd = "codex";
       } else if (provider === "claude_code_cli") {
@@ -405,6 +469,28 @@ function scheduleFill(): void {
     return;
   }
 
+  const startNow = Date.now();
+  const constrainedConfig = constrainConfigToDeadline({ config: args.config, now: startNow });
+  if (constrainedConfig === null) {
+    const deadlineAt = args.config.deadlineAt;
+    if (deadlineAt === undefined) {
+      throw new Error("Deadline-constrained config requires an absolute deadline.");
+    }
+    log.info({
+      event: AGENT_QUEUE_DEADLINE_REJECTED,
+      requestId,
+      workspace: args.workspace,
+      model: args.model,
+      waitMs,
+      deadlineAt,
+      killGraceMs: args.config.killGraceMs,
+    });
+    args.lifecycleCallbacks?.onFinished?.();
+    resolve(deadlineTimeoutResult({ enclaimedAt, now: startNow, deadlineAt }));
+    scheduleFill();
+    return;
+  }
+
   if (waitMs >= env.CTO_AGENT_QUEUE_WARN_WAIT_MS) {
     log.info({
       event: AGENT_QUEUE_WARN_WAIT,
@@ -435,7 +521,7 @@ function scheduleFill(): void {
   void (async () => {
     try {
       const result = await executeAgentCliProcess(
-        args,
+        { ...args, config: constrainedConfig },
         (abort) => {
           activeAbortRefs.set(requestId, { abort });
         },
@@ -578,10 +664,12 @@ export function runAgentCliProcessWithEnv(args: {
   workspace: string;
   resumeChatId: string | undefined;
   executionMode: "ask" | "force";
+  outputJsonSchema: IJsonSchema | undefined;
   lifecycleCallbacks?: IAgentQueueLifecycleCallbacks;
   requestContext?: IAgentRequestContext;
   agentTmpDir?: string;
   requestId?: string;
+  deadlineAt: number | undefined;
 }): Promise<IAgentCliResult> {
   const env = loadEnv();
   const requestId = args.requestId ?? randomUUID();
@@ -598,6 +686,7 @@ export function runAgentCliProcessWithEnv(args: {
       timeoutMs: env.AGENT_TIMEOUT_MS,
       watchdogIdleMs: env.AGENT_WATCHDOG_IDLE_MS,
       killGraceMs: env.AGENT_KILL_GRACE_MS,
+      deadlineAt: args.deadlineAt,
     },
   });
 }
@@ -608,10 +697,15 @@ export function runCodexCliProcessWithEnv(args: {
   workspace: string;
   resumeSessionId: string | undefined;
   executionMode: "ask" | "force";
+  outputJsonSchema: IJsonSchema | undefined;
   lifecycleCallbacks?: IAgentQueueLifecycleCallbacks;
   requestContext?: IAgentRequestContext;
   agentTmpDir?: string;
   requestId?: string;
+  deadlineAt: number | undefined;
+  securityMode: ICodexStructuredSecurityMode;
+  isolatedCodexHome?: string;
+  readOnlyMcpServer?: IReadOnlyMcpServer;
 }): Promise<IAgentCliResult> {
   const env = loadEnv();
   const requestId = args.requestId ?? randomUUID();
@@ -625,6 +719,10 @@ export function runCodexCliProcessWithEnv(args: {
     workspace: args.workspace,
     resumeChatId: args.resumeSessionId,
     executionMode: args.executionMode,
+    outputJsonSchema: args.outputJsonSchema,
+    codexSecurityMode: args.securityMode,
+    isolatedCodexHome: args.isolatedCodexHome,
+    readOnlyMcpServer: args.readOnlyMcpServer,
     lifecycleCallbacks: args.lifecycleCallbacks,
     requestContext: args.requestContext,
     requestId,
@@ -634,6 +732,7 @@ export function runCodexCliProcessWithEnv(args: {
       timeoutMs: env.AGENT_TIMEOUT_MS,
       watchdogIdleMs: env.AGENT_WATCHDOG_IDLE_MS,
       killGraceMs: env.AGENT_KILL_GRACE_MS,
+      deadlineAt: args.deadlineAt,
     },
   });
 }
@@ -648,6 +747,7 @@ export function runClaudeCodeCliProcessWithEnv(args: {
   requestContext?: IAgentRequestContext;
   agentTmpDir?: string;
   requestId?: string;
+  deadlineAt: number | undefined;
 }): Promise<IAgentCliResult> {
   const env = loadEnv();
   const requestId = args.requestId ?? randomUUID();
@@ -671,6 +771,7 @@ export function runClaudeCodeCliProcessWithEnv(args: {
       timeoutMs: env.AGENT_TIMEOUT_MS,
       watchdogIdleMs: env.AGENT_WATCHDOG_IDLE_MS,
       killGraceMs: env.AGENT_KILL_GRACE_MS,
+      deadlineAt: args.deadlineAt,
     },
   });
 }

@@ -27,6 +27,18 @@ const ROUTE_SPECS = {
   SCANNING_STATUS: { path: "/v1/scanning/status", method: "get" as const },
   SCANNING_RESUME: { path: "/v1/scanning/resume", method: "post" as const },
   SCANNING_PAUSE: { path: "/v1/scanning/pause", method: "post" as const },
+  DOCUMENTATION_REFRESH_STATUS: {
+    path: "/v1/documentation-refresh/status",
+    method: "get" as const,
+  },
+  NEXT_COMMITMENT_STATUS: {
+    path: "/v1/next-commitment",
+    method: "get" as const,
+  },
+  NEXT_COMMITMENT_RUNS: {
+    path: "/v1/next-commitment/runs",
+    method: "post" as const,
+  },
 } satisfies Record<string, IRouteSpec>;
 
 export const ROUTES = ROUTE_SPECS;

@@ -40,6 +40,18 @@ The main finding workflow is:
 
 Rules and continual-learning flows share the same local-first constraints and use the runtime's SQLite-backed state as the source of truth.
 
+The next-commitment workflow is separate and manual:
+
+1. The user starts a review for the selected project.
+2. The runtime records a queued run in that project's SQLite database, finds recent tasks associated with the exact project root, and creates bounded immutable snapshots containing only user/assistant messages from exact-project turns.
+3. Codex runs ephemerally with automatic project instructions, user config, plugins, apps, web access, both shell implementations, and inherited nonessential environment variables disabled. The prompt provides logical locators rather than injecting project files or conversations.
+4. A Steward-owned MCP broker eagerly loads only the sanitized snapshot, exposes bounded read/list/search tools keyed by repository-relative paths or task ids, and records successful content reads. The agent can inspect at most four task snapshots and forty project evidence locators, including repository state.
+5. Steward requires the reported project-file, repository-state, and task inspection lists to exactly match the broker's actual-read audit before persistence. Listing recent task metadata is a selection step, not task-content inspection; a manifest citation is still accepted only when that listing succeeded.
+6. Steward persists one recommendation, an explicit no-recommendation result, or a blocked result. It supersedes the review if the project changes while the agent is working or after completion but before Codex handoff.
+7. For a persisted recommendation, **Start in Codex** revalidates the selected project, exact run, and captured Git snapshot, then the Electron host creates, names, and submits one persisted Codex Desktop task through the local app-server protocol. It waits for the review turn and requires a non-empty `final_answer` agent message before opening the task. Restart reconciliation performs a bounded search for the submission id stored as the first message's client id, preventing duplicate tasks. That review uses the signed-in Desktop ChatGPT account and must report the exact selected project as its only runtime workspace root. The exact root is marked untrusted for executable Codex configuration and its permission profile denies root filesystem access; automatic project-doc injection, local environments, both shell implementations, effective MCP servers, network access, host notification and telemetry channels, skills, subagents, external web search, and progress commentary are disabled. The task reviews only the recommendation agent's bounded, provenance-checked evidence packet and produces one concise decision instead of reopening host files or starting another agent workflow.
+
+Next-commitment results and their Codex review tasks are advisory. They do not enter the implementation workflow or authorize code changes; implementation requires a separate explicitly approved workflow.
+
 ## Agent Providers
 
 The runtime currently supports:

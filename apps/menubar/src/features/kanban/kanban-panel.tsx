@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { CheckCircle2, Clock, TerminalSquare, XCircle } from "lucide-react";
-import type { ICtoItem } from "@steward/contracts/schemas";
+import { DOCUMENTATION_REFRESH_CATEGORY_ID, type ICtoItem } from "@steward/contracts/schemas";
 import {
   useCtoItemsQuery,
   useKanbanApproveFindingMutation,
@@ -197,6 +197,16 @@ export function KanbanPanel(): JSX.Element {
     });
   }
 
+  function handleDismissReport(itemId: string): void {
+    setSelectedItemId(null);
+    showToast({
+      message: "Report dismissed",
+      durationMs: UNDO_DURATION_MS,
+      onUndo: () => setSelectedItemId(itemId),
+      onTimeout: () => rejectMutation.mutate({ itemId, rejectReason: "" }),
+    });
+  }
+
   if (!hasItems && isLoading) {
     return (
       <div className={PANEL_CLASS_NAME} role="tabpanel">
@@ -328,6 +338,7 @@ export function KanbanPanel(): JSX.Element {
           onClose={() => setSelectedItemId(null)}
           onApprove={(selectedOptionId) => handleApprove(selectedItem.id, selectedOptionId)}
           onReject={(rejectReason) => handleReject(selectedItem.id, rejectReason)}
+          onDismissReport={() => handleDismissReport(selectedItem.id)}
           onUndo={() => {
             if (
               window.confirm(
@@ -480,6 +491,7 @@ function KanbanDetailModal(args: {
   onClose: () => void;
   onApprove: (selectedOptionId: "A" | "B" | "C" | undefined) => void;
   onReject: (rejectReason: string) => void;
+  onDismissReport: () => void;
   onUndo: () => void;
   undoMutation: ReturnType<typeof useKanbanUndoFindingMutation>;
 }): JSX.Element {
@@ -551,13 +563,23 @@ function KanbanDetailModal(args: {
 
   return (
     <Modal isOpen={true} title={item.problem.title} onClose={args.onClose} size="lg">
-      <FindingDetailView
-        input={detailInput}
-        mode={interactive ? "interactive" : "readOnly"}
-        enforceInboxFields={false}
-        onApprove={interactive ? args.onApprove : (): void => {}}
-        onReject={interactive ? args.onReject : (): void => {}}
-      />
+      {item.categoryId === DOCUMENTATION_REFRESH_CATEGORY_ID ? (
+        <FindingDetailView
+          input={detailInput}
+          variant="documentationReport"
+          mode={interactive ? "interactive" : "readOnly"}
+          enforceInboxFields={false}
+          onDismiss={args.onDismissReport}
+        />
+      ) : (
+        <FindingDetailView
+          input={detailInput}
+          mode={interactive ? "interactive" : "readOnly"}
+          enforceInboxFields={false}
+          onApprove={interactive ? args.onApprove : (): void => {}}
+          onReject={interactive ? args.onReject : (): void => {}}
+        />
+      )}
     </Modal>
   );
 }

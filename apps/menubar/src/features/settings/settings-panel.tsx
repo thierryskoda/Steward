@@ -1,12 +1,23 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
-import { Settings } from "lucide-react";
+import {
+  CircleAlert,
+  CircleCheck,
+  Clock3,
+  ExternalLink,
+  FileText,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 import {
   useConnectionConfigQuery,
   useCliProviderQuery,
   useConfigQuery,
   useRuntimeStatusQuery,
   useScanningStatusQuery,
+  useDocumentationRefreshStatusQuery,
+  useNextCommitmentQuery,
+  useStartNextCommitmentMutation,
   useLogsDirQuery,
   useRulesSnapshotQuery,
   useListProjectsQuery,
@@ -19,10 +30,17 @@ import {
   useRemoveProjectMutation,
   useSetCliProviderMutation,
 } from "./settings.queries.js";
-import { openLogsDirectory, openFolderDialog } from "../../runtime/bridge.js";
+import {
+  openLogsDirectory,
+  openFolderDialog,
+  startNextCommitmentInCodex,
+} from "../../runtime/bridge.js";
 import type {
   IAgentCliProvider,
   IFeatureFlags,
+  IDocumentationRefreshStatusResponse,
+  INextCommitmentResult,
+  INextCommitmentStatusResponse,
   IRulesSnapshotCategoryEntry,
   IUpdateConfigBody,
 } from "@steward/contracts/schemas";
@@ -108,6 +126,9 @@ export function SettingsPanel(): JSX.Element {
   const statusQuery = useRuntimeStatusQuery();
   const logsDirQuery = useLogsDirQuery();
   const scanningStatusQuery = useScanningStatusQuery();
+  const documentationStatusQuery = useDocumentationRefreshStatusQuery();
+  const nextCommitmentQuery = useNextCommitmentQuery();
+  const startNextCommitmentMutation = useStartNextCommitmentMutation();
   const selectedProjInList = projects.find((p) => p.projectRoot === selectedRoot);
   const defaultScanningStatus =
     selectedProjInList?.status === "running" ? ("active" as const) : ("paused" as const);
@@ -172,6 +193,33 @@ export function SettingsPanel(): JSX.Element {
             proj={proj}
             isSelected={proj.projectRoot === selectedRoot}
             scanningStatus={scanningStatus}
+            documentationStatus={
+              proj.projectRoot === selectedRoot ? documentationStatusQuery.data : undefined
+            }
+            documentationStatusPending={
+              proj.projectRoot === selectedRoot ? documentationStatusQuery.isPending : false
+            }
+            documentationStatusError={
+              proj.projectRoot === selectedRoot ? documentationStatusQuery.isError : false
+            }
+            nextCommitment={
+              proj.projectRoot === selectedRoot ? nextCommitmentQuery.data : undefined
+            }
+            nextCommitmentPending={
+              proj.projectRoot === selectedRoot ? nextCommitmentQuery.isPending : false
+            }
+            nextCommitmentError={
+              proj.projectRoot === selectedRoot ? nextCommitmentQuery.isError : false
+            }
+            isStartingNextCommitment={
+              startNextCommitmentMutation.isPending &&
+              startNextCommitmentMutation.variables === proj.projectRoot
+            }
+            nextCommitmentStartError={
+              startNextCommitmentMutation.isError &&
+              startNextCommitmentMutation.variables === proj.projectRoot
+            }
+            onStartNextCommitment={() => startNextCommitmentMutation.mutate(proj.projectRoot)}
             repoConfig={proj.projectRoot === selectedRoot ? repoConfig : null}
             configPending={proj.projectRoot === selectedRoot ? configPending : false}
             configError={proj.projectRoot === selectedRoot ? configError : false}
@@ -345,6 +393,15 @@ function ProjectSettingsCard(args: {
   updateConfigMutation: ReturnType<typeof useUpdateConfigMutation>;
   onNonFeatureSave: () => void;
   scanningStatus?: "active" | "paused";
+  documentationStatus: IDocumentationRefreshStatusResponse | null | undefined;
+  documentationStatusPending: boolean;
+  documentationStatusError: boolean;
+  nextCommitment: INextCommitmentStatusResponse | null | undefined;
+  nextCommitmentPending: boolean;
+  nextCommitmentError: boolean;
+  isStartingNextCommitment: boolean;
+  nextCommitmentStartError: boolean;
+  onStartNextCommitment: () => void;
   cliProvider: IAgentCliProvider | undefined;
   cliProviderPending: boolean;
   cliProviderError: boolean;
@@ -473,6 +530,32 @@ function ProjectSettingsCard(args: {
               isSaving={args.isSettingCliProvider}
               onChange={args.onCliProviderChange}
             />
+            <DocumentationHealthRow
+              status={args.documentationStatus}
+              isPending={args.documentationStatusPending}
+              isError={args.documentationStatusError}
+              isRuntimeStopped={isRuntimeStopped}
+            />
+            <NextCommitmentRow
+              key={
+                args.nextCommitment?.status === "recommendation"
+                  ? args.nextCommitment.runId
+                  : args.nextCommitment?.status
+              }
+              value={args.nextCommitment}
+              isPending={args.nextCommitmentPending}
+              isError={args.nextCommitmentError}
+              isRuntimeStopped={isRuntimeStopped}
+              isStarting={args.isStartingNextCommitment}
+              startError={args.nextCommitmentStartError}
+              onStart={args.onStartNextCommitment}
+              onStartInCodex={() => {
+                if (args.nextCommitment?.status !== "recommendation") {
+                  return Promise.reject(new Error("There is no recommendation to start."));
+                }
+                return startNextCommitmentInCodex(args.nextCommitment.runId).then(() => undefined);
+              }}
+            />
             {args.proj.status === "stopped" ? null : args.configPending &&
               args.repoConfig == null ? (
               <p className="text-[14px] text-zinc-500 dark:text-zinc-400">Loading configuration…</p>
@@ -572,6 +655,444 @@ function ProjectSettingsCard(args: {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+type IDocumentationHealthPresentation = {
+  label: string;
+  detail: string;
+  tone: "neutral" | "success" | "warning" | "danger";
+};
+
+function documentationHealthPresentation(
+  status: IDocumentationRefreshStatusResponse["status"]
+): IDocumentationHealthPresentation {
+  if (status === "never-checked") {
+    return {
+      label: "Not checked yet",
+      detail: "The initial documentation review has not completed.",
+      tone: "neutral",
+    };
+  }
+  if (status === "queued") {
+    return { label: "Queued", detail: "Waiting for the documentation worker.", tone: "neutral" };
+  }
+  if (status === "running") {
+    return {
+      label: "Checking now",
+      detail: "Reviewing documentation against the project.",
+      tone: "neutral",
+    };
+  }
+  if (status === "clean") {
+    return { label: "Up to date", detail: "No documentation drift was found.", tone: "success" };
+  }
+  if (status === "needs-review") {
+    return {
+      label: "Needs review",
+      detail: "A documentation report is in the inbox.",
+      tone: "warning",
+    };
+  }
+  if (status === "blocked") {
+    return {
+      label: "Blocked",
+      detail: "The review needs project context or human input.",
+      tone: "warning",
+    };
+  }
+  if (status === "failed") {
+    return {
+      label: "Check failed",
+      detail: "The runtime could not finish the review.",
+      tone: "danger",
+    };
+  }
+  return {
+    label: "Change superseded",
+    detail: "A newer project state will be reviewed next.",
+    tone: "neutral",
+  };
+}
+
+function formatLastChecked(value: number | null): string {
+  if (value === null) return "No completed check";
+  return `Last checked ${new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value))}`;
+}
+
+function DocumentationHealthRow(args: {
+  status: IDocumentationRefreshStatusResponse | null | undefined;
+  isPending: boolean;
+  isError: boolean;
+  isRuntimeStopped: boolean;
+}): JSX.Element {
+  const presentation = args.status ? documentationHealthPresentation(args.status.status) : null;
+  const Icon =
+    presentation?.tone === "success"
+      ? CircleCheck
+      : presentation?.tone === "warning" || presentation?.tone === "danger"
+        ? CircleAlert
+        : args.status?.status === "running" || args.status?.status === "queued"
+          ? Clock3
+          : FileText;
+  const iconColor =
+    presentation?.tone === "success"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : presentation?.tone === "warning"
+        ? "text-amber-600 dark:text-amber-400"
+        : presentation?.tone === "danger"
+          ? "text-red-600 dark:text-red-400"
+          : "text-zinc-500 dark:text-zinc-400";
+
+  return (
+    <div className="flex items-start gap-3 border-y border-zinc-200 py-4 dark:border-zinc-800">
+      <Icon className={cn("mt-0.5 h-5 w-5 shrink-0", iconColor)} aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <p className="text-[14px] font-semibold text-zinc-900 dark:text-zinc-100">
+            Documentation health
+          </p>
+          {args.status ? (
+            <p className="text-[13px] tabular-nums text-zinc-500 dark:text-zinc-400">
+              {formatLastChecked(args.status.lastCheckedAt)}
+            </p>
+          ) : null}
+        </div>
+        {presentation ? (
+          <p className="mt-1 text-[14px] text-zinc-600 dark:text-zinc-300">
+            <span className="font-medium text-zinc-800 dark:text-zinc-100">
+              {presentation.label}.
+            </span>{" "}
+            {presentation.detail}
+          </p>
+        ) : args.isRuntimeStopped ? (
+          <p className="mt-1 text-[14px] text-zinc-600 dark:text-zinc-300">
+            Start the project to check documentation freshness.
+          </p>
+        ) : args.isPending ? (
+          <p className="mt-1 text-[14px] text-zinc-600 dark:text-zinc-300">
+            Loading documentation status…
+          </p>
+        ) : args.isError ? (
+          <p className="mt-1 text-[14px] text-red-700 dark:text-red-300">
+            Documentation status is temporarily unavailable.
+          </p>
+        ) : (
+          <p className="mt-1 text-[14px] text-zinc-600 dark:text-zinc-300">
+            Documentation status is not available yet.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatNextCommitmentTime(value: number | null): string | null {
+  if (value === null) return null;
+  return `Reviewed ${new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value))}`;
+}
+
+export function NextCommitmentRow(args: {
+  value: INextCommitmentStatusResponse | null | undefined;
+  isPending: boolean;
+  isError: boolean;
+  isRuntimeStopped: boolean;
+  isStarting: boolean;
+  startError: boolean;
+  onStart: () => void;
+  onStartInCodex: () => Promise<void>;
+}): JSX.Element {
+  const [codexTaskStatus, setCodexTaskStatus] = React.useState<
+    "idle" | "starting" | "ready" | "failed"
+  >("idle");
+  const [codexTaskError, setCodexTaskError] = React.useState<string | null>(null);
+  const status = args.value?.status;
+  const isActive = status === "queued" || status === "running";
+  const result =
+    args.value?.status === "recommendation" ||
+    args.value?.status === "none" ||
+    args.value?.status === "blocked"
+      ? args.value.result
+      : null;
+  const reviewedAt =
+    args.value !== undefined && args.value !== null && args.value.status !== "never-run"
+      ? formatNextCommitmentTime(args.value.completedAt)
+      : null;
+  const buttonLabel =
+    args.isStarting || isActive
+      ? "Finding…"
+      : status === "never-run" || status === undefined
+        ? "Find next commitment"
+        : "Find again";
+
+  async function handleStartInCodex(): Promise<void> {
+    setCodexTaskStatus("starting");
+    setCodexTaskError(null);
+    try {
+      await args.onStartInCodex();
+      setCodexTaskStatus("ready");
+    } catch (error: unknown) {
+      setCodexTaskStatus("failed");
+      setCodexTaskError(
+        error instanceof Error
+          ? error.message
+          : "Codex could not complete this task. Check that Codex is installed and signed in, then try again."
+      );
+    }
+  }
+
+  return (
+    <div className="border-b border-zinc-200 pb-5 dark:border-zinc-800">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <Sparkles
+            className="mt-0.5 h-5 w-5 shrink-0 text-indigo-600 dark:text-indigo-400"
+            aria-hidden="true"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <p className="text-[14px] font-semibold text-zinc-900 dark:text-zinc-100">
+                Next commitment
+              </p>
+              {reviewedAt ? (
+                <p className="text-[13px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                  {reviewedAt}
+                </p>
+              ) : null}
+            </div>
+
+            {args.isRuntimeStopped ? (
+              <p className="mt-1 text-[14px] text-zinc-600 dark:text-zinc-300">
+                Start the project to review its current evidence and recent Codex work.
+              </p>
+            ) : args.isPending && args.value == null ? (
+              <p className="mt-1 text-[14px] text-zinc-600 dark:text-zinc-300">
+                Loading the latest recommendation…
+              </p>
+            ) : args.isError && args.value == null ? (
+              <p className="mt-1 text-[14px] text-red-700 dark:text-red-300">
+                The latest recommendation is temporarily unavailable.
+              </p>
+            ) : status === "queued" ? (
+              <p className="mt-1 text-[14px] text-zinc-600 dark:text-zinc-300">
+                Waiting for the read-only Codex reviewer.
+              </p>
+            ) : status === "running" ? (
+              <p className="mt-1 text-[14px] text-zinc-600 dark:text-zinc-300">
+                Reviewing project goals, current code, documentation, and recent Codex tasks.
+              </p>
+            ) : args.value?.status === "recommendation" ? (
+              <div className="mt-3 rounded-2xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-800/70 dark:bg-indigo-950/30">
+                <p className="font-semibold text-zinc-950 dark:text-zinc-50">
+                  {args.value.result.commitment.title}
+                </p>
+                <p className="mt-2 text-[14px] text-zinc-700 dark:text-zinc-200">
+                  {args.value.result.commitment.whyNow}
+                </p>
+                <p className="mt-2 text-[13px] text-zinc-600 dark:text-zinc-300">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-100">Outcome:</span>{" "}
+                  {args.value.result.commitment.expectedOutcome}
+                </p>
+                <div className="mt-3">
+                  <p className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">
+                    Done when
+                  </p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-[13px] text-zinc-600 dark:text-zinc-300">
+                    {args.value.result.commitment.definitionOfDone.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <p className="mt-3 text-[13px] text-zinc-600 dark:text-zinc-300">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-100">
+                    First action:
+                  </span>{" "}
+                  {args.value.result.commitment.firstAction}
+                </p>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={codexTaskStatus === "starting"}
+                    onClick={() => void handleStartInCodex()}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                    {codexTaskStatus === "starting"
+                      ? "Reviewing in Codex…"
+                      : codexTaskStatus === "ready"
+                        ? "Open Codex task"
+                        : "Start in Codex"}
+                  </Button>
+                  <p className="text-[12px] text-zinc-600 dark:text-zinc-300">
+                    {codexTaskStatus === "ready"
+                      ? "The Codex answer is ready."
+                      : "Creates a Codex task, runs the review, and opens it when the answer is ready."}
+                  </p>
+                </div>
+                {codexTaskStatus === "failed" ? (
+                  <p className="mt-2 text-[13px] text-red-700 dark:text-red-300" role="alert">
+                    {codexTaskError}
+                  </p>
+                ) : null}
+                <details className="mt-3 text-[13px] text-zinc-600 dark:text-zinc-300">
+                  <summary className="cursor-pointer font-medium text-zinc-800 dark:text-zinc-100">
+                    Why this one
+                  </summary>
+                  <p className="mt-2">{args.value.result.whyThisWins}</p>
+                  <p className="mt-2">
+                    <span className="font-semibold">Strongest counterargument:</span>{" "}
+                    {args.value.result.strongestCounterargument}
+                  </p>
+                  {args.value.result.alternatives.length > 0 ? (
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {args.value.result.alternatives.map((alternative) => (
+                        <li key={alternative.title}>
+                          <span className="font-medium">{alternative.title}:</span>{" "}
+                          {alternative.whyNotNow}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </details>
+              </div>
+            ) : args.value?.status === "none" ? (
+              <div className="mt-2 text-[14px] text-zinc-600 dark:text-zinc-300">
+                <p className="font-medium text-zinc-800 dark:text-zinc-100">
+                  Nothing strong enough to recommend right now.
+                </p>
+                <p className="mt-1">{args.value.result.reason}</p>
+                <p className="mt-1 text-[13px]">
+                  Reconsider when: {args.value.result.reconsiderWhen}
+                </p>
+              </div>
+            ) : args.value?.status === "blocked" ? (
+              <div className="mt-2 text-[14px] text-amber-800 dark:text-amber-200">
+                <p className="font-medium">Review blocked.</p>
+                <p className="mt-1">{args.value.result.blocker}</p>
+                <p className="mt-1 text-[13px]">Next: {args.value.result.nextAction}</p>
+              </div>
+            ) : status === "failed" ? (
+              <p className="mt-1 text-[14px] text-red-700 dark:text-red-300">
+                The review did not finish. You can run it again.
+              </p>
+            ) : status === "superseded" ? (
+              <p className="mt-1 text-[14px] text-zinc-600 dark:text-zinc-300">
+                The project changed during the review. Run it again against the current state.
+              </p>
+            ) : (
+              <p className="mt-1 text-[14px] text-zinc-600 dark:text-zinc-300">
+                Ask Steward to identify one evidence-backed next commitment, or recommend nothing.
+              </p>
+            )}
+
+            {result ? <NextCommitmentAuditDetails result={result} /> : null}
+
+            {args.isError && args.value != null ? (
+              <p className="mt-2 text-[13px] text-amber-700 dark:text-amber-300" role="status">
+                Showing the last saved review. Steward could not refresh it just now.
+              </p>
+            ) : null}
+
+            {args.startError ? (
+              <p className="mt-2 text-[13px] text-red-700 dark:text-red-300" role="alert">
+                Steward could not start the review. Check that the project runtime is running and
+                try again.
+              </p>
+            ) : null}
+
+            <p className="mt-2 text-[12px] text-zinc-500 dark:text-zinc-400">
+              Recommendation only. Steward will not implement it automatically.
+            </p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={args.isRuntimeStopped || args.isStarting || isActive}
+          onClick={args.onStart}
+        >
+          {buttonLabel}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function NextCommitmentAuditDetails(args: { result: INextCommitmentResult }): JSX.Element {
+  return (
+    <details className="mt-3 text-[13px] text-zinc-600 dark:text-zinc-300">
+      <summary className="cursor-pointer font-medium text-zinc-800 dark:text-zinc-100">
+        Evidence and review scope
+      </summary>
+      <div className="mt-2 space-y-3">
+        <div>
+          <p className="font-semibold text-zinc-800 dark:text-zinc-100">Review summary</p>
+          <p className="mt-1">{args.result.summary}</p>
+        </div>
+        <div>
+          <p className="font-semibold text-zinc-800 dark:text-zinc-100">Evidence</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            {args.result.evidence.map((evidence) => (
+              <li key={`${evidence.source}:${evidence.location}:${evidence.finding}`}>
+                <span className="font-medium">{evidence.source}</span>{" "}
+                <code className="break-all text-[12px]">{evidence.location}</code>:{" "}
+                {evidence.finding}
+              </li>
+            ))}
+          </ul>
+        </div>
+        {args.result.uncertainties.length > 0 ? (
+          <div>
+            <p className="font-semibold text-zinc-800 dark:text-zinc-100">Uncertainties</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              {args.result.uncertainties.map((uncertainty) => (
+                <li key={uncertainty}>{uncertainty}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <div>
+          <p className="font-semibold text-zinc-800 dark:text-zinc-100">Inspected project paths</p>
+          {args.result.inspectedProjectPaths.length > 0 ? (
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              {args.result.inspectedProjectPaths.map((path) => (
+                <li key={path}>
+                  <code className="break-all text-[12px]">{path}</code>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1">None reported.</p>
+          )}
+        </div>
+        <div>
+          <p className="font-semibold text-zinc-800 dark:text-zinc-100">Inspected Codex task IDs</p>
+          {args.result.inspectedTaskIds.length > 0 ? (
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              {args.result.inspectedTaskIds.map((taskId) => (
+                <li key={taskId}>
+                  <code className="break-all text-[12px]">{taskId}</code>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1">None reported.</p>
+          )}
+        </div>
+      </div>
+    </details>
   );
 }
 

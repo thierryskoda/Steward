@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "../../../../..");
 
 function entry(path: string, status: IGitStatusCode): IGitStatusEntry {
-  return { path, status };
+  return { path, status, contentFingerprint: null };
 }
 
 describe("hasScopeStructureChanges", () => {

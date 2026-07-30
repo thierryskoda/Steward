@@ -1,6 +1,6 @@
 # Steward
 
-Steward is a local-first AI maintenance companion for codebases built with AI. It continuously looks for places where a project has drifted from your engineering practices, turns them into clear findings, and helps an AI agent fix them.
+Steward is a local-first AI maintenance companion for codebases built with AI. It continuously looks for places where a project has drifted from your engineering practices, turns them into clear findings, helps an AI agent fix them, and can recommend the strongest next commitment for one selected project.
 
 ## Why Steward Exists
 
@@ -20,6 +20,8 @@ The goal is simple: **let AI help maintain the quality of AI-built software, not
 4. **Review focused findings.** Steward explains what is wrong, why it matters, and the meaningful implementation options.
 5. **Approve the direction.** You keep control when a fix involves a product, architecture, or risk tradeoff.
 6. **Let an agent implement it.** Steward runs the selected coding agent, tracks the result, and supports reverting an implemented finding.
+
+From the selected project's settings, you can also ask Steward to find its next commitment. An isolated, bounded, read-only Codex run inspects the project's current files and sanitized snapshots of relevant recent Codex tasks associated with that exact project root. Codex has no shell or general filesystem access in this flow; it requests evidence through a Steward-owned allowlisted broker. It returns one evidence-backed commitment when a clear winner exists, or explicitly recommends nothing. Steward requires its reported inspection list to exactly match the broker's content-read audit, shows that evidence in the app, and never implements the result automatically. When a recommendation exists, **Start in Codex** first supersedes it if the project's Git snapshot changed, then creates a real project-scoped Codex task, automatically reviews the already-validated evidence packet, verifies that a final answer exists, and opens that task. Executable project configuration, project-doc injection, local environments, filesystem access, shells, MCP, apps, web access, and network access are disabled for this handoff. The task works silently and posts one concise Approve, Refine, or Dismiss decision; implementation requires a separate explicitly approved workflow.
 
 Optional rules and continual-learning workflows can also capture durable guidance from your agent conversations and rejected findings, so the project gets better at preserving the practices that matter to you.
 

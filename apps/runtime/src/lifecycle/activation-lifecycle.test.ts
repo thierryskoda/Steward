@@ -7,6 +7,7 @@ import {
 import type { IRepoScopeConfig } from "../features/context/repo-scope-config.js";
 import { CONFIG_SCHEMA_VERSION } from "../features/config/project-config-store.js";
 import { APPROVAL_MODE_ALWAYS_APPROVE } from "@steward/contracts/schemas";
+import type { IGitPollerOnTickArgs } from "../core/git/git-poll-tick.js";
 
 vi.mock("../core/project-root.js", () => ({
   getProjectRoot: () => "/tmp/cto-runtime-lifecycle-test",
@@ -60,6 +61,8 @@ function createDeps(): IPostActivationEventSourcesDeps {
     logDisabledWorkflowsWithConfig: vi.fn(),
     ensureRulesSnapshot: vi.fn(),
     ensureProjectContextSnapshot: vi.fn(),
+    runDocumentationRefresh: vi.fn(),
+    recoverDocumentationRefreshRuns: vi.fn(),
   };
 }
 
@@ -86,11 +89,67 @@ describe("activation lifecycle resource scopes", () => {
     }
 
     expect(deps.ensureDirsAndRecoveryWithGetter).toHaveBeenCalledOnce();
+    expect(deps.recoverDocumentationRefreshRuns).toHaveBeenCalledOnce();
     expect(deps.runStaleImplementingSweepWithGetter).toHaveBeenCalledOnce();
     expect(deps.startWorkersWithConfig).toHaveBeenCalledWith(repoScopeConfig);
     expect(deps.logDisabledWorkflowsWithConfig).toHaveBeenCalledWith(repoScopeConfig);
     expect(deps.startTranscriptIngestionWithGetter).not.toHaveBeenCalled();
     expect(deps.startContinualLearningWithGetter).not.toHaveBeenCalled();
     expect(deps.startGitPollerWithGetters).not.toHaveBeenCalled();
+  });
+
+  it("refreshes project-context snapshots from the raw change batch even when generic filtering removed the path", async () => {
+    const deps = createDeps();
+    const configWithProjectContext: IRepoScopeConfig = {
+      ...repoScopeConfig,
+      projectContext: ["AGENTS.md"],
+      features: {
+        ...repoScopeConfig.features,
+        genericFindingEnabled: false,
+      },
+    };
+    deps.repoScopeConfigRef.current = configWithProjectContext;
+    deps.repoScopeConfigForPhases = configWithProjectContext;
+    runPostActivationScanningSourcesPhase(deps);
+    const startCall = vi.mocked(deps.startGitPollerWithGetters).mock.calls[0];
+    const onTick = startCall?.[2];
+    expect(onTick).toBeDefined();
+    if (onTick === undefined) return;
+    const tick: IGitPollerOnTickArgs = {
+      projectRoot: "/tmp/cto-runtime-lifecycle-test",
+      config: configWithProjectContext,
+      changeBatch: Object.freeze({
+        fingerprint: "fingerprint",
+        changedPaths: Object.freeze(["AGENTS.md"]),
+        snapshot: Object.freeze({
+          hash: "fingerprint",
+          headSha: "abc",
+          entries: Object.freeze([
+            Object.freeze({
+              path: "AGENTS.md",
+              status: "M" as const,
+              contentFingerprint: "context-content",
+            }),
+          ]),
+        }),
+      }),
+      genericChangedPaths: [],
+      shouldRegenExclude: false,
+      hasReactiveWork: false,
+      hasProactiveWork: true,
+    };
+
+    await onTick(tick);
+
+    expect(deps.runDocumentationRefresh).toHaveBeenCalledWith(tick.changeBatch);
+
+    expect(deps.ensureRulesSnapshot).toHaveBeenCalledWith(
+      "/tmp/cto-runtime-lifecycle-test",
+      configWithProjectContext
+    );
+    expect(deps.ensureProjectContextSnapshot).toHaveBeenCalledWith(
+      "/tmp/cto-runtime-lifecycle-test",
+      configWithProjectContext
+    );
   });
 });

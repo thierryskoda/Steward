@@ -154,6 +154,8 @@ const envSchema = z.object({
   CTO_DEBUG_ENDPOINT: optionalStringEnv(),
   CTO_DEBUG_SESSION: optionalStringEnv(),
   CTO_LOGS_ROOT: optionalStringEnv(),
+  CTO_CODEX_CLI_PATH: optionalStringEnv(),
+  CODEX_HOME: optionalStringEnv(),
   CTO_AGENT_IO_LOG_ENABLED: strictBooleanEnv(DEFAULT_AGENT_IO_LOG_ENABLED),
   CTO_REGENERATE_CONFIG_ON_GIT_POLL: strictBooleanEnv(DEFAULT_REGENERATE_CONFIG_ON_GIT_POLL),
   CTO_CONTINUAL_LEARNING_IDLE_MS: z.coerce

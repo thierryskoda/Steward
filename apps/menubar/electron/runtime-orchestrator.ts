@@ -45,6 +45,19 @@ export type IProjectWithStatus = {
   endpoint?: { host: string; port: number };
 };
 
+export type IProjectRuntimeStartupStatus = "running" | "needs-config";
+
+export type IKnownProjectStartupResult =
+  | {
+      projectRoot: string;
+      status: IProjectRuntimeStartupStatus;
+    }
+  | {
+      projectRoot: string;
+      status: "failed";
+      message: string;
+    };
+
 export function listProjectsWithRuntimeStatus(): IProjectWithStatus[] {
   pruneStaleRegistryEntries();
   const prefs = readAppPreferences();
@@ -156,9 +169,8 @@ function waitForConnection(
 }
 
 function waitForReady(
-  connection: NonNullable<ReturnType<typeof getConnection>>,
-  _projectRoot: string
-): Promise<void> {
+  connection: NonNullable<ReturnType<typeof getConnection>>
+): Promise<IProjectRuntimeStartupStatus> {
   const deadline = Date.now() + READINESS_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     function poll(): void {
@@ -174,7 +186,7 @@ function waitForReady(
             return;
           }
           if (status.state === "running" || status.state === "needs-config") {
-            resolve();
+            resolve(status.state);
             return;
           }
           if (status.state === "error") {
@@ -210,7 +222,7 @@ async function isRuntimeRunning(projectRoot: string): Promise<boolean> {
   }
 }
 
-export async function startProject(projectRoot: string): Promise<void> {
+export async function startProject(projectRoot: string): Promise<IProjectRuntimeStartupStatus> {
   const canonical = path.resolve(projectRoot);
   addKnownProject(canonical);
   const runtimePath = getRuntimeMainPath();
@@ -223,50 +235,9 @@ export async function startProject(projectRoot: string): Promise<void> {
 
   const connection = getConnection(canonical);
   if (connection) {
+    let status: Awaited<ReturnType<typeof gateway.getRuntimeStatus>>;
     try {
-      const status = await gateway.getRuntimeStatus(connection);
-      if (status?.state === "running" || status?.state === "needs-config") {
-        writeHostLog(
-          "info",
-          "orchestrator",
-          `start_project already_running; resuming scanning projectRoot=${canonical}`
-        );
-        try {
-          await gateway.resumeScanning(connection);
-          return;
-        } catch (e) {
-          writeHostLog(
-            "error",
-            "orchestrator",
-            `start_project scanning resume failed projectRoot=${canonical} error=${formatErrorForLog(e)}`
-          );
-          throw e;
-        }
-      } else if (status?.state === "error") {
-        writeHostLog(
-          "info",
-          "orchestrator",
-          `start_project found old errored runtime, shutting it down and cleaning registry projectRoot=${canonical}`
-        );
-        try {
-          await gateway.shutdownRuntime(connection);
-        } catch {
-          if (status.pid > 0) {
-            try {
-              process.kill(status.pid, "SIGKILL");
-            } catch (killError) {
-              writeHostLog(
-                "error",
-                "orchestrator",
-                `start_project stale runtime kill failed pid=${status.pid} error=${formatErrorForLog(killError)}`
-              );
-            }
-          }
-        }
-        removeProjectFromRegistry(canonical);
-      } else {
-        removeProjectFromRegistry(canonical);
-      }
+      status = await gateway.getRuntimeStatus(connection);
     } catch {
       writeHostLog(
         "info",
@@ -274,10 +245,56 @@ export async function startProject(projectRoot: string): Promise<void> {
         `start_project connection unreachable, cleaning registry projectRoot=${canonical}`
       );
       removeProjectFromRegistry(canonical);
+      status = null;
+    }
+
+    if (status?.state === "running" || status?.state === "needs-config") {
+      writeHostLog(
+        "info",
+        "orchestrator",
+        `start_project already_running; resuming scanning projectRoot=${canonical}`
+      );
+      try {
+        await gateway.resumeScanning(connection);
+        return status.state;
+      } catch (error) {
+        writeHostLog(
+          "error",
+          "orchestrator",
+          `start_project scanning resume failed projectRoot=${canonical} error=${formatErrorForLog(error)}`
+        );
+        throw error;
+      }
+    }
+
+    if (status?.state === "error") {
+      writeHostLog(
+        "info",
+        "orchestrator",
+        `start_project found old errored runtime, shutting it down and cleaning registry projectRoot=${canonical}`
+      );
+      try {
+        await gateway.shutdownRuntime(connection);
+      } catch {
+        if (status.pid > 0) {
+          try {
+            process.kill(status.pid, "SIGKILL");
+          } catch (killError) {
+            writeHostLog(
+              "error",
+              "orchestrator",
+              `start_project stale runtime kill failed pid=${status.pid} error=${formatErrorForLog(killError)}`
+            );
+          }
+        }
+      }
+      removeProjectFromRegistry(canonical);
+    } else if (status) {
+      removeProjectFromRegistry(canonical);
     }
   }
 
-  return new Promise((resolve, reject) => {
+  return new Promise<IProjectRuntimeStartupStatus>((resolve, reject) => {
     let settled = false;
     const child = spawn("node", [runtimePath, RUNTIME_ARG], {
       env: {
@@ -314,7 +331,7 @@ export async function startProject(projectRoot: string): Promise<void> {
               "orchestrator",
               `start_project child_exited_but_runtime_running code=${code} signal=${signal ?? "null"} projectRoot=${canonical}`
             );
-            resolve();
+            resolve("running");
             return;
           }
           writeHostLog(
@@ -358,11 +375,11 @@ export async function startProject(projectRoot: string): Promise<void> {
         `start_project wait_ready_begin projectRoot=${canonical}`
       );
       try {
-        await waitForReady(conn, canonical);
+        const startupStatus = await waitForReady(conn);
         await gateway.resumeScanning(conn);
         if (!settled) {
           settled = true;
-          resolve();
+          resolve(startupStatus);
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -374,6 +391,41 @@ export async function startProject(projectRoot: string): Promise<void> {
       }
     })();
   });
+}
+
+export async function startKnownProjects(): Promise<IKnownProjectStartupResult[]> {
+  const projectRoots = [...new Set(getKnownProjectRoots())];
+  const results: IKnownProjectStartupResult[] = [];
+  writeHostLog("info", "orchestrator", `start_known_projects begin count=${projectRoots.length}`);
+
+  for (const projectRoot of projectRoots) {
+    try {
+      const status = await startProject(projectRoot);
+      results.push({ projectRoot, status });
+      writeHostLog(
+        status === "needs-config" ? "warn" : "info",
+        "orchestrator",
+        `start_known_projects project_complete projectRoot=${projectRoot} status=${status}`
+      );
+    } catch (error) {
+      const message = formatErrorForLog(error);
+      results.push({ projectRoot, status: "failed", message });
+      writeHostLog(
+        "error",
+        "orchestrator",
+        `start_known_projects project_failed projectRoot=${projectRoot} error=${message}`
+      );
+    }
+  }
+
+  const failedCount = results.filter((result) => result.status === "failed").length;
+  const needsConfigCount = results.filter((result) => result.status === "needs-config").length;
+  writeHostLog(
+    failedCount > 0 || needsConfigCount > 0 ? "warn" : "info",
+    "orchestrator",
+    `start_known_projects complete count=${results.length} failed=${failedCount} needsConfig=${needsConfigCount}`
+  );
+  return results;
 }
 
 export async function stopProject(projectRoot: string): Promise<void> {

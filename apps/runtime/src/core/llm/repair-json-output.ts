@@ -4,8 +4,9 @@
 import { z } from "zod";
 import { AppError } from "../app-error.js";
 import { ERR_JSON_REPAIR } from "../error-codes.js";
-import { getLlmProvider } from "./llm-provider-factory.js";
+import type { ILLMProvider } from "./llm-provider.types.js";
 import { repairJsonOutputAgent } from "./repair-json-output.agent.js";
+import { convertZodSchemaToJsonSchema } from "./zod-json-schema.js";
 
 /** Validates that repaired string is parseable JSON; used instead of bare JSON.parse. */
 const anyJsonSchema = z.unknown();
@@ -17,6 +18,10 @@ export async function repairJsonOutput(args: {
   receivedOutput: string;
   parseError?: string;
   workspace: string;
+  llmProvider: ILLMProvider;
+  deadlineAt: number | undefined;
+  agentTmpDir?: string;
+  isolatedCodexHome?: string;
   _repairDepth?: number;
 }): Promise<string> {
   const depth = args._repairDepth ?? 0;
@@ -38,11 +43,15 @@ export async function repairJsonOutput(args: {
     parseError: args.parseError,
   });
   const prompt = repairJsonOutputAgent.buildPrompt(input);
-  const result = await getLlmProvider().runStructured({
+  const result = await args.llmProvider.runStructured({
     prompt,
     model: repairJsonOutputAgent.model,
     workspace: args.workspace,
+    outputJsonSchema: convertZodSchemaToJsonSchema(repairJsonOutputAgent.outputSchema),
     resumeConversationId: undefined,
+    agentTmpDir: args.agentTmpDir,
+    isolatedCodexHome: args.isolatedCodexHome,
+    deadlineAt: args.deadlineAt,
   });
   if (!result.success) {
     const detail = result.diagnosticText || result.outputText || "repair agent failed";

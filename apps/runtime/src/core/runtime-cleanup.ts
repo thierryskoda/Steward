@@ -40,6 +40,8 @@ export function createCleanup(args: {
     updateRuntimeState({ state: "stopped" });
     refs.transcriptIngestionServiceRef.current?.stop();
     refs.transcriptIngestionServiceRef.current = null;
+    refs.stopGitPollRef?.current?.();
+    if (refs.stopGitPollRef) refs.stopGitPollRef.current = null;
     void shutdownAgentQueue({
       timeoutMs: SHUTDOWN_QUEUE_TIMEOUT_MS,
     })
@@ -49,7 +51,6 @@ export function createCleanup(args: {
         if (refs.staleSweepIntervalRef?.current) clearInterval(refs.staleSweepIntervalRef.current);
         if (refs.continualLearningIntervalRef?.current)
           clearInterval(refs.continualLearningIntervalRef.current);
-        refs.stopGitPollRef?.current?.();
         if (refs.findingImplementationWorkerIntervalRef?.current)
           clearInterval(refs.findingImplementationWorkerIntervalRef.current);
         if (refs.ruleApplyWorkerIntervalRef.current)

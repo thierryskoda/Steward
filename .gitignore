@@ -32,3 +32,6 @@ apps/runtime/scripts/logs/
 .vscode/
 *.swp
 *.swo
+
+# Temporary agent execution plans
+.agent/

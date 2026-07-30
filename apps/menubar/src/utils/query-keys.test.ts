@@ -17,6 +17,16 @@ describe("queryKeys", () => {
       "runtime-status",
       "/repo-a",
     ]);
+    assert.deepStrictEqual(queryKeys.settings.documentationRefreshStatus("/repo-a"), [
+      "settings",
+      "documentation-refresh-status",
+      "/repo-a",
+    ]);
+    assert.deepStrictEqual(queryKeys.settings.nextCommitment("/repo-a"), [
+      "settings",
+      "next-commitment",
+      "/repo-a",
+    ]);
     assert.deepStrictEqual(queryKeys.settings.rulesSnapshot("/repo-a"), [
       "settings",
       "rules-snapshot",

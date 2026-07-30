@@ -171,6 +171,67 @@ const migrations: IMigration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    name: "documentation_refresh_runs",
+    up(db) {
+      db.exec(`
+        CREATE TABLE documentation_refresh_runs (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL CHECK (kind IN ('baseline', 'incremental')),
+          input_fingerprint TEXT NOT NULL,
+          head_sha TEXT,
+          scoped_content_hashes_json TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (
+            status IN ('queued', 'running', 'clean', 'needs-review', 'blocked', 'failed', 'superseded')
+          ),
+          baseline_cursor TEXT,
+          attempt_count INTEGER NOT NULL CHECK (attempt_count >= 0 AND attempt_count <= 2),
+          evidence_json TEXT,
+          finding_id TEXT,
+          lease_observed_at INTEGER,
+          stop_reason TEXT,
+          blocker TEXT,
+          next_action TEXT,
+          started_at INTEGER,
+          completed_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE UNIQUE INDEX documentation_refresh_runs_input_idx
+          ON documentation_refresh_runs(kind, input_fingerprint);
+        CREATE INDEX documentation_refresh_runs_status_idx
+          ON documentation_refresh_runs(status, updated_at);
+      `);
+    },
+  },
+  {
+    version: 6,
+    name: "next_commitment_runs",
+    up(db) {
+      db.exec(`
+        CREATE TABLE next_commitment_runs (
+          id TEXT PRIMARY KEY,
+          project_snapshot_hash TEXT NOT NULL,
+          head_sha TEXT,
+          status TEXT NOT NULL CHECK (
+            status IN ('queued', 'running', 'recommendation', 'none', 'blocked', 'failed', 'superseded')
+          ),
+          result_json TEXT,
+          stop_reason TEXT,
+          started_at INTEGER,
+          completed_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE UNIQUE INDEX next_commitment_runs_active_idx
+          ON next_commitment_runs ((1))
+          WHERE status IN ('queued', 'running');
+      `);
+    },
+  },
 ];
 
 export function runSqliteMigrations(db: ISqliteConnection): void {

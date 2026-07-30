@@ -24,6 +24,7 @@ import {
   OkResponseSchema,
   RuntimeStatusResponseSchema,
   ScanningStatusResponseSchema,
+  NextCommitmentStatusResponseSchema,
   STATUS,
 } from "@steward/contracts/schemas";
 import { buildRoute, ROUTES } from "@steward/contracts/routes";
@@ -291,6 +292,13 @@ async function main(): Promise<void> {
     );
     if (activeScanning.status !== "active") {
       throw new Error(`Expected scanning active after startup, got ${activeScanning.status}.`);
+    }
+
+    const nextCommitment = NextCommitmentStatusResponseSchema.parse(
+      await requestJson({ endpoint, path: ROUTES.NEXT_COMMITMENT_STATUS.path, token })
+    );
+    if (nextCommitment.status !== "never-run") {
+      throw new Error(`Expected no next commitment run yet, got ${nextCommitment.status}.`);
     }
 
     const pausedScanning = ScanningStatusResponseSchema.parse(

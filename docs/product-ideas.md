@@ -9,7 +9,6 @@ This document collects active directions and unresolved product questions for St
 - Allow provider/model choice by stage: finding detection, option generation/planning, and implementation.
 - Show agent transcripts in the UI with the reason for each change and the specific rules/project context the agent followed.
 - Keep human gates where product or business direction is ambiguous, while allowing higher-autonomy flows for obvious fixes.
-- Track current project goals, focus, and the main limiting factor blocking progress.
 - Make "implemented" defensible with visible evidence such as tests, typecheck, smoke checks, and changed files.
 - Add configurable autonomy levels for detection sensitivity, option count, rule-capture strictness, and auto-implementation behavior.
 - Support undo/revert for automatically implemented changes, especially when verification fails.

@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import {
   ApproveFindingBodySchema,
+  DOCUMENTATION_REFRESH_CATEGORY_ID,
   OkResponseSchema,
   parseRejectBody,
   STATUS,
@@ -27,10 +28,8 @@ export const MOUNTED_ROUTE_KEYS: (keyof typeof ROUTES)[] = [
 type IOptionId = "A" | "B" | "C";
 
 export type IFindingsRouteDeps = {
-  getActionableCategories: () => Array<{ categoryId: string }>;
-  getFindingByIdAcrossCategories: (
+  getFindingById: (
     projectRoot: string,
-    categoryIds: string[],
     id: string
   ) => {
     categoryId: string;
@@ -75,11 +74,23 @@ export function findingsRoutes(deps: IFindingsRouteDeps): Router {
     (req: Request<IRouteIdParams>, res: Response) => {
       const id = req.params.id;
       const projectRoot = getProjectRoot();
-      const categoryIds = deps.getActionableCategories().map((e) => e.categoryId);
-      const found = deps.getFindingByIdAcrossCategories(projectRoot, categoryIds, id);
+      const found = deps.getFindingById(projectRoot, id);
+      if (!found) {
+        sendApiError(res, 404, "NOT_FOUND", "Finding not found");
+        return;
+      }
+      if (found.categoryId === DOCUMENTATION_REFRESH_CATEGORY_ID) {
+        sendApiError(
+          res,
+          409,
+          "NOT_IMPLEMENTABLE",
+          "Documentation refresh reports are review-only and cannot be approved"
+        );
+        return;
+      }
       const okStatus =
-        found?.item.status === STATUS.NEEDS_REVIEW || found?.item.status === STATUS.APPROVED;
-      if (!found || !okStatus) {
+        found.item.status === STATUS.NEEDS_REVIEW || found.item.status === STATUS.APPROVED;
+      if (!okStatus) {
         const allow = [STATUS.NEEDS_REVIEW, STATUS.APPROVED].join("/");
         sendApiError(res, 404, "NOT_FOUND", `Finding not found or not ${allow}`);
         return;
@@ -117,8 +128,7 @@ export function findingsRoutes(deps: IFindingsRouteDeps): Router {
     (req: Request<IRouteIdParams>, res: Response) => {
       const id = req.params.id;
       const projectRoot = getProjectRoot();
-      const categoryIds = deps.getActionableCategories().map((e) => e.categoryId);
-      const found = deps.getFindingByIdAcrossCategories(projectRoot, categoryIds, id);
+      const found = deps.getFindingById(projectRoot, id);
       if (!found) {
         sendApiError(res, 404, "NOT_FOUND", "Finding not found");
         return;
@@ -132,8 +142,9 @@ export function findingsRoutes(deps: IFindingsRouteDeps): Router {
         return;
       }
       const rejectedReason = parseRejectBody(req.body);
+      const isDocumentationReport = found.categoryId === DOCUMENTATION_REFRESH_CATEGORY_ID;
       const targetStatus =
-        rejectedReason && deps.shouldLearnFromRejectedFinding(projectRoot)
+        !isDocumentationReport && rejectedReason && deps.shouldLearnFromRejectedFinding(projectRoot)
           ? STATUS.LEARNING_FROM_REJECTION
           : STATUS.REJECTED;
       const ok = deps.transitionFindingStatus(projectRoot, found.categoryId, id, targetStatus, {
@@ -143,7 +154,7 @@ export function findingsRoutes(deps: IFindingsRouteDeps): Router {
         sendApiError(res, 500, "UPDATE_FAILED", "Failed to reject finding");
         return;
       }
-      if (rejectedReason.length > 0) {
+      if (!isDocumentationReport && rejectedReason.length > 0) {
         const hintResult = deps.captureOptionHintOnFindingReject({
           projectRoot,
           categoryId: found.categoryId,
@@ -189,10 +200,18 @@ export function findingsRoutes(deps: IFindingsRouteDeps): Router {
     async (req: Request<IRouteIdParams>, res: Response) => {
       const id = req.params.id;
       const projectRoot = getProjectRoot();
-      const categoryIds = deps.getActionableCategories().map((e) => e.categoryId);
-      const found = deps.getFindingByIdAcrossCategories(projectRoot, categoryIds, id);
+      const found = deps.getFindingById(projectRoot, id);
       if (!found) {
         sendApiError(res, 404, "NOT_FOUND", "Finding not found");
+        return;
+      }
+      if (found.categoryId === DOCUMENTATION_REFRESH_CATEGORY_ID) {
+        sendApiError(
+          res,
+          409,
+          "NOT_IMPLEMENTABLE",
+          "Documentation refresh reports are review-only and cannot be undone"
+        );
         return;
       }
       if (found.item.status !== STATUS.IMPLEMENTED) {

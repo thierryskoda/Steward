@@ -21,6 +21,7 @@ const BASE_CONFIG: IAgentProcessConfig = {
   timeoutMs: 60_000,
   watchdogIdleMs: 30_000,
   killGraceMs: 5_000,
+  deadlineAt: undefined,
 };
 
 function createFakeProcess(
@@ -226,6 +227,29 @@ describe("runAgentCliProcess queue", () => {
         }),
       /Agent prompt too large/
     );
+  });
+
+  it("does not spawn a request whose absolute deadline cannot cover process shutdown", async () => {
+    let spawned = false;
+    mockSpawnRef.current = ((_cmd: string, _argsOrOptions?: unknown) => {
+      spawned = true;
+      return createFakeProcess(0);
+    }) as SpawnImpl;
+
+    const result = await runAgentCliProcess({
+      prompt: "deadline-expired-before-start",
+      model: DEFAULT_LLM_MODEL,
+      workspace: "/tmp",
+      config: {
+        ...BASE_CONFIG,
+        deadlineAt: Date.now() + BASE_CONFIG.killGraceMs,
+      },
+      executionMode: "ask",
+      resumeChatId: undefined,
+    });
+
+    assert.strictEqual(result.reason, "timeout");
+    assert.strictEqual(spawned, false);
   });
 
   it("rejects stale queue item by age cap when wait exceeds max age", async () => {

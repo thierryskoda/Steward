@@ -110,6 +110,225 @@ export const RuntimeStatusResponseSchema = z.object({
 
 export type IRuntimeStatusResponse = z.infer<typeof RuntimeStatusResponseSchema>;
 
+export const DOCUMENTATION_REFRESH_STATUS_VALUES = [
+  "queued",
+  "running",
+  "clean",
+  "needs-review",
+  "blocked",
+  "failed",
+  "superseded",
+] as const;
+
+export const DocumentationRefreshStatusSchema = z.enum(DOCUMENTATION_REFRESH_STATUS_VALUES);
+export type IDocumentationRefreshStatus = z.infer<typeof DocumentationRefreshStatusSchema>;
+
+export const DocumentationRefreshStatusResponseSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("never-checked"),
+      lastCheckedAt: z.null(),
+      findingId: z.null(),
+    })
+    .strict(),
+  z
+    .object({
+      status: DocumentationRefreshStatusSchema,
+      lastCheckedAt: z.number().int().nonnegative().nullable(),
+      findingId: z.string().min(1).nullable(),
+    })
+    .strict(),
+]);
+
+export type IDocumentationRefreshStatusResponse = z.infer<
+  typeof DocumentationRefreshStatusResponseSchema
+>;
+
+export const CodexTaskSubmissionSchema = z
+  .object({
+    status: z.literal("submitted"),
+    threadId: z.string().uuid(),
+    title: z.string().min(1).max(120),
+  })
+  .strict();
+
+export type ICodexTaskSubmission = z.infer<typeof CodexTaskSubmissionSchema>;
+
+export const NEXT_COMMITMENT_RUN_STATUS_VALUES = [
+  "queued",
+  "running",
+  "recommendation",
+  "none",
+  "blocked",
+  "failed",
+  "superseded",
+] as const;
+
+export const NextCommitmentRunStatusSchema = z.enum(NEXT_COMMITMENT_RUN_STATUS_VALUES);
+export type INextCommitmentRunStatus = z.infer<typeof NextCommitmentRunStatusSchema>;
+
+export const NextCommitmentEvidenceSchema = z
+  .object({
+    source: z.enum(["project-file", "codex-task", "task-manifest"]),
+    location: z.string().min(1).max(500),
+    finding: z.string().min(10).max(800),
+  })
+  .strict();
+
+const nextCommitmentCommonResultShape = {
+  summary: z.string().min(10).max(500),
+  inspectedProjectPaths: z.array(z.string().min(1).max(500)).max(40),
+  inspectedTaskIds: z.array(z.string().min(1).max(100)).max(4),
+  uncertainties: z.array(z.string().min(1).max(500)).max(8),
+} as const;
+
+export const NextCommitmentRecommendationSchema = z
+  .object({
+    status: z.literal("recommendation"),
+    ...nextCommitmentCommonResultShape,
+    inspectedProjectPaths: nextCommitmentCommonResultShape.inspectedProjectPaths.min(1),
+    evidence: z.array(NextCommitmentEvidenceSchema).min(2).max(8),
+    commitment: z
+      .object({
+        title: z.string().min(10).max(160),
+        whyNow: z.string().min(20).max(1_000),
+        expectedOutcome: z.string().min(20).max(1_000),
+        definitionOfDone: z.array(z.string().min(10).max(240)).min(1).max(5),
+        firstAction: z.string().min(10).max(500),
+      })
+      .strict(),
+    whyThisWins: z.string().min(20).max(1_000),
+    strongestCounterargument: z.string().min(20).max(1_000),
+    alternatives: z
+      .array(
+        z
+          .object({
+            title: z.string().min(5).max(160),
+            whyNotNow: z.string().min(20).max(700),
+          })
+          .strict()
+      )
+      .max(2),
+  })
+  .strict();
+
+export const NextCommitmentNoneSchema = z
+  .object({
+    status: z.literal("none"),
+    ...nextCommitmentCommonResultShape,
+    evidence: z.array(NextCommitmentEvidenceSchema).min(1).max(8),
+    reason: z.string().min(20).max(1_000),
+    reconsiderWhen: z.string().min(10).max(700),
+  })
+  .strict();
+
+export const NextCommitmentBlockedSchema = z
+  .object({
+    status: z.literal("blocked"),
+    ...nextCommitmentCommonResultShape,
+    evidence: z.array(NextCommitmentEvidenceSchema).max(8),
+    uncertainties: nextCommitmentCommonResultShape.uncertainties.min(1),
+    blocker: z.string().min(10).max(1_000),
+    nextAction: z.string().min(10).max(700),
+  })
+  .strict();
+
+export const NextCommitmentResultSchema = z.discriminatedUnion("status", [
+  NextCommitmentRecommendationSchema,
+  NextCommitmentNoneSchema,
+  NextCommitmentBlockedSchema,
+]);
+
+export type INextCommitmentResult = z.infer<typeof NextCommitmentResultSchema>;
+
+const nextCommitmentRunResponseShape = {
+  runId: z.string().uuid(),
+  createdAt: z.number().int().nonnegative(),
+  startedAt: z.number().int().nonnegative().nullable(),
+  completedAt: z.number().int().nonnegative().nullable(),
+} as const;
+
+const NextCommitmentQueuedResponseSchema = z
+  .object({
+    status: z.literal("queued"),
+    ...nextCommitmentRunResponseShape,
+    result: z.null(),
+    stopReason: z.null(),
+  })
+  .strict();
+
+const NextCommitmentRunningResponseSchema = z
+  .object({
+    status: z.literal("running"),
+    ...nextCommitmentRunResponseShape,
+    result: z.null(),
+    stopReason: z.null(),
+  })
+  .strict();
+
+const NextCommitmentRecommendationResponseSchema = z
+  .object({
+    status: z.literal("recommendation"),
+    ...nextCommitmentRunResponseShape,
+    result: NextCommitmentRecommendationSchema,
+    stopReason: z.null(),
+  })
+  .strict();
+
+const NextCommitmentNoneResponseSchema = z
+  .object({
+    status: z.literal("none"),
+    ...nextCommitmentRunResponseShape,
+    result: NextCommitmentNoneSchema,
+    stopReason: z.null(),
+  })
+  .strict();
+
+const NextCommitmentBlockedResponseSchema = z
+  .object({
+    status: z.literal("blocked"),
+    ...nextCommitmentRunResponseShape,
+    result: NextCommitmentBlockedSchema,
+    stopReason: z.null(),
+  })
+  .strict();
+
+const NextCommitmentFailedResponseSchema = z
+  .object({
+    status: z.literal("failed"),
+    ...nextCommitmentRunResponseShape,
+    result: z.null(),
+    stopReason: z.string().min(1).max(1_000),
+  })
+  .strict();
+
+const NextCommitmentSupersededResponseSchema = z
+  .object({
+    status: z.literal("superseded"),
+    ...nextCommitmentRunResponseShape,
+    result: z.null(),
+    stopReason: z.string().min(1).max(1_000),
+  })
+  .strict();
+
+export const NextCommitmentRunResponseSchema = z.discriminatedUnion("status", [
+  NextCommitmentQueuedResponseSchema,
+  NextCommitmentRunningResponseSchema,
+  NextCommitmentRecommendationResponseSchema,
+  NextCommitmentNoneResponseSchema,
+  NextCommitmentBlockedResponseSchema,
+  NextCommitmentFailedResponseSchema,
+  NextCommitmentSupersededResponseSchema,
+]);
+
+export const NextCommitmentStatusResponseSchema = z.union([
+  z.object({ status: z.literal("never-run") }).strict(),
+  NextCommitmentRunResponseSchema,
+]);
+
+export type INextCommitmentRunResponse = z.infer<typeof NextCommitmentRunResponseSchema>;
+export type INextCommitmentStatusResponse = z.infer<typeof NextCommitmentStatusResponseSchema>;
+
 export const ShutdownRuntimeResponseSchema = z.object({
   ok: z.literal(true),
 });
@@ -301,6 +520,9 @@ export const InboxRuleItemSchema = z.object({
 
 export type IInboxRuleItem = z.infer<typeof InboxRuleItemSchema>;
 
+/** Static report-only category for the built-in documentation freshness workflow. */
+export const DOCUMENTATION_REFRESH_CATEGORY_ID = "documentation-refresh" as const;
+
 /** Finding domain: problem description (technical + human). Human fields optional when humanize skipped (e.g. 1-option flow). */
 export const FindingProblemSchema = z.object({
   title: FindingShortLabelSchema,
@@ -329,17 +551,17 @@ const FindingOptionSchema = z.object({
 
 /** Strict finding option for inbox: human fields are mandatory. */
 const InboxFindingOptionSchema = FindingOptionSchema.extend({
-  humanSummary: z.string(),
-  humanChooseThisIf: z.string(),
-  humanTradeoff: z.string(),
+  humanSummary: z.string().min(1),
+  humanChooseThisIf: z.string().min(1),
+  humanTradeoff: z.string().min(1),
 });
 
 const InboxFindingProblemSchema = FindingProblemSchema.extend({
-  humanSummary: z.string(),
-  humanCurrentBehavior: z.string(),
-  humanWhyItMatters: z.string(),
+  humanSummary: z.string().min(1),
+  humanCurrentBehavior: z.string().min(1),
+  humanWhyItMatters: z.string().min(1),
   humanEvidence: z.array(z.string().min(1).max(240)).min(1).max(3),
-  humanDecisionQuestion: z.string(),
+  humanDecisionQuestion: z.string().min(1),
 });
 
 /** Finding domain: user choice and options (1–2 options). */
@@ -350,24 +572,31 @@ export const FindingDecisionSchema = z.object({
 
 export type IFindingDecision = z.infer<typeof FindingDecisionSchema>;
 
-export const InboxFindingItemSchema = z.object({
-  type: z.literal("finding"),
-  categoryId: z.string(),
-  id: z.string(),
-  problem: InboxFindingProblemSchema,
-  decision: z.object({
-    options: z.array(InboxFindingOptionSchema).min(2),
-    selectedOptionId: z.enum(["A", "B", "C"]).optional(),
-  }),
-  createdAt: z.number(),
-});
+export const InboxFindingItemSchema = z
+  .object({
+    type: z.literal("finding"),
+    categoryId: z.string(),
+    id: z.string(),
+    problem: InboxFindingProblemSchema,
+    decision: z.object({
+      options: z.array(InboxFindingOptionSchema).min(1).max(2),
+      selectedOptionId: z.enum(["A", "B", "C"]).optional(),
+    }),
+    createdAt: z.number(),
+  })
+  .superRefine((item, context) => {
+    if (item.categoryId !== DOCUMENTATION_REFRESH_CATEGORY_ID && item.decision.options.length < 2) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Generic inbox findings require at least two complete options",
+        path: ["decision", "options"],
+      });
+    }
+  });
 
 export type IInboxFindingItem = z.infer<typeof InboxFindingItemSchema>;
 
-export const InboxItemSchema = z.discriminatedUnion("type", [
-  InboxRuleItemSchema,
-  InboxFindingItemSchema,
-]);
+export const InboxItemSchema = z.union([InboxRuleItemSchema, InboxFindingItemSchema]);
 
 export type IInboxItem = z.infer<typeof InboxItemSchema>;
 

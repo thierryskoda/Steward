@@ -9,11 +9,15 @@
     "start": "node dist/src/main.js --runtime",
     "validate-env": "tsx scripts/validate-env.ts",
     "generate-categories": "tsx scripts/generate-category.ts",
-    "agent-cli-contract": "tsx scripts/agent-cli-contract.ts",
-    "agent-cli-probe": "tsx scripts/experiments/agent-cli-probe.ts",
-    "target-smoke": "pnpm run build && tsx scripts/smoke-state-db.ts && tsx scripts/smoke-runtime-http.ts",
-    "e2e": "tsx scripts/smoke-state-db.ts && tsx scripts/smoke-runtime-http.ts",
-    "e2e:provider": "tsx scripts/e2e-category-generation.ts && tsx scripts/e2e-implementation-undo.ts && tsx scripts/e2e-rejection-feedback.ts && tsx scripts/e2e-transcript-rule.ts",
+    "agent-cli-contract": "tsx scripts/codex-cli-contract.ts",
+    "agent-cli-probe": "tsx scripts/codex-documentation-refresh-probe.ts",
+    "agent-cli-probe:next-commitment": "tsx scripts/codex-next-commitment-probe.ts",
+    "e2e:documentation-live": "tsx scripts/e2e-documentation-refresh-judge.ts",
+    "cursor-agent-cli-contract": "tsx scripts/agent-cli-contract.ts",
+    "cursor-agent-cli-probe": "tsx scripts/experiments/agent-cli-probe.ts",
+    "target-smoke": "pnpm run e2e",
+    "e2e": "pnpm run build && tsx scripts/smoke-state-db.ts && tsx scripts/smoke-documentation-refresh.ts && tsx scripts/smoke-runtime-http.ts",
+    "e2e:provider": "tsx scripts/e2e-category-generation.ts && tsx scripts/e2e-implementation-undo.ts && tsx scripts/e2e-rejection-feedback.ts && tsx scripts/e2e-transcript-rule.ts && pnpm run e2e:documentation-live",
     "eval:humanize": "tsx scripts/eval-humanize-category.ts",
     "test": "node scripts/run-test.mjs",
     "test:watch": "vitest"
@@ -25,7 +29,8 @@
     "express": "^5.2.1",
     "jsonrepair": "^3.4.0",
     "pino": "^9.14.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "3.25.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

@@ -71,6 +71,8 @@ describe("parseEnv: optional string env vars are undefined when omitted and trim
     const env = parseEnv({ ...MINIMAL_ENV });
     assert.strictEqual(env.CTO_LOGS_ROOT, undefined);
     assert.strictEqual(env.CTO_DEBUG_ENDPOINT, undefined);
+    assert.strictEqual(env.CTO_CODEX_CLI_PATH, undefined);
+    assert.strictEqual(env.CODEX_HOME, undefined);
   });
 
   it("when var is set, leading and trailing whitespace is trimmed so we never store padded strings", () => {
@@ -78,9 +80,13 @@ describe("parseEnv: optional string env vars are undefined when omitted and trim
       ...MINIMAL_ENV,
       CTO_LOGS_ROOT: "  /tmp/cto-logs  ",
       CTO_DEBUG_ENDPOINT: "  http://127.0.0.1:7710/ingest/session  ",
+      CTO_CODEX_CLI_PATH: "  /opt/codex/bin/codex  ",
+      CODEX_HOME: "  /custom/codex-home  ",
     });
     assert.strictEqual(env.CTO_LOGS_ROOT, "/tmp/cto-logs");
     assert.strictEqual(env.CTO_DEBUG_ENDPOINT, "http://127.0.0.1:7710/ingest/session");
+    assert.strictEqual(env.CTO_CODEX_CLI_PATH, "/opt/codex/bin/codex");
+    assert.strictEqual(env.CODEX_HOME, "/custom/codex-home");
   });
 });
 

@@ -17,7 +17,13 @@
       "project": ["src/**/*.ts", "scripts/**/*.ts"]
     },
     "apps/menubar": {
-      "entry": ["electron/main.ts", "electron/preload.cts"],
+      "entry": [
+        "electron/main.ts",
+        "electron/preload.cts",
+        "electron/**/*.test.ts",
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx"
+      ],
       "project": ["electron/**/*.ts", "electron/**/*.cts", "src/**/*.ts", "src/**/*.tsx"]
     }
   }

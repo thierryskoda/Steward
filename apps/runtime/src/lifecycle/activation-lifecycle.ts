@@ -59,6 +59,8 @@ import {
   listApprovedFindingsForCategory,
 } from "../features/categories/categories-store.js";
 import { runStaleContextScan } from "../features/categories/stale-context-scan.js";
+import type { IProjectChangeBatch } from "../core/git/git-poll-tick.js";
+import { DOCUMENTATION_REFRESH_INTAKE_FAILED } from "../features/documentation-refresh/documentation-refresh-log-events.js";
 
 export function buildRepoScopePhaseDeps(): IRepoScopePhaseDeps {
   return {
@@ -138,6 +140,8 @@ export type IPostActivationEventSourcesDeps = {
   logDisabledWorkflowsWithConfig: (repoScopeConfig: IRepoScopeConfig | null) => void;
   ensureRulesSnapshot: (projectRoot: string, config: IRepoScopeConfig) => Promise<unknown>;
   ensureProjectContextSnapshot: (projectRoot: string, config: IRepoScopeConfig) => Promise<unknown>;
+  runDocumentationRefresh: (changeBatch: IProjectChangeBatch) => Promise<void>;
+  recoverDocumentationRefreshRuns: () => void;
 };
 
 export function runPostActivationScanningSourcesPhase(deps: IPostActivationEventSourcesDeps): void {
@@ -180,11 +184,11 @@ export function runPostActivationScanningSourcesPhase(deps: IPostActivationEvent
     ...getRuleSources(getRepoScopeConfig()),
     ...getProjectContextSources(getRepoScopeConfig()),
   ];
-  const changedPathsNormalized = (paths: string[]): Set<string> =>
+  const changedPathsNormalized = (paths: readonly string[]): Set<string> =>
     new Set(paths.map((p) => p.replace(/\\/g, "/").trim()));
   const sourcePathsNormalized = (): Set<string> =>
     new Set(ruleAndContextSources().map((p) => p.replace(/\\/g, "/").trim()));
-  const shouldRefreshSnapshots = (changedPaths: string[]): boolean => {
+  const shouldRefreshSnapshots = (changedPaths: readonly string[]): boolean => {
     const changed = changedPathsNormalized(changedPaths);
     const sources = sourcePathsNormalized();
     for (const p of changed) {
@@ -193,8 +197,19 @@ export function runPostActivationScanningSourcesPhase(deps: IPostActivationEvent
     return false;
   };
   const onTick = async (args: IGitPollerOnTickArgs): Promise<void> => {
+    try {
+      await deps.runDocumentationRefresh(args.changeBatch);
+    } catch (error) {
+      logError(error, {
+        event: DOCUMENTATION_REFRESH_INTAKE_FAILED,
+        component: "documentation-refresh",
+        operation: "runDocumentationRefresh",
+        projectRoot: args.projectRoot,
+        inputFingerprint: args.changeBatch.fingerprint,
+      });
+    }
     if (
-      shouldRefreshSnapshots(args.changedPaths) &&
+      shouldRefreshSnapshots(args.changeBatch.changedPaths) &&
       !snapshotRefreshInFlight &&
       (args.hasReactiveWork || args.hasProactiveWork)
     ) {
@@ -254,7 +269,7 @@ export function runPostActivationScanningSourcesPhase(deps: IPostActivationEvent
           operation: "runGenerateAllGenericCategories",
           projectRoot: args.projectRoot,
           ...(categoryId !== undefined && { categoryId }),
-          changedFilesCount: args.changedPaths.length,
+          changedFilesCount: args.genericChangedPaths.length,
         });
       }
     }
@@ -292,7 +307,10 @@ export function runPostActivationWorkflowProcessorsPhase(
     repoScopeConfigRef.current ?? repoScopeConfigForPhases;
 
   runEventSourcesPhase({
-    startEventSources: () => deps.ensureDirsAndRecoveryWithGetter(getRepoScopeConfig),
+    startEventSources: () => {
+      deps.ensureDirsAndRecoveryWithGetter(getRepoScopeConfig);
+      deps.recoverDocumentationRefreshRuns();
+    },
     runStaleImplementingSweep: () =>
       deps.runStaleImplementingSweepWithGetter(() => repoScopeConfigRef.current ?? null),
     startWorkers: () => deps.startWorkersWithConfig(repoScopeConfigRef.current),

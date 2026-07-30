@@ -7,6 +7,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   error_handling_integrity: "Error handling integrity",
   security_hygiene: "Security hygiene",
   architecture_coupling: "Architecture coupling",
+  "documentation-refresh": "Documentation health",
 };
 
 const STATUS_LABELS: Record<string, string> = {

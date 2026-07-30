@@ -1,7 +1,15 @@
 import { createHash } from "crypto";
 import { spawnSync } from "child_process";
+import { lstatSync, readFileSync, readlinkSync, realpathSync } from "fs";
+import { isAbsolute, relative, resolve } from "path";
 import { getRuntimeLogger } from "../logger.js";
 import { GIT_SNAPSHOT_STATUS_FAILED } from "../runtime-log-events.js";
+import { AppError } from "../app-error.js";
+import { ERR_GIT_DELTA } from "../error-codes.js";
+import { isGeneratedOrDependencyGitPath, isLikelyBinaryGitPath } from "./git-content-policy.js";
+import { buildSanitizedGitProcessEnv } from "./git-process-env.js";
+
+const MAX_CONTENT_FINGERPRINT_BYTES = 2 * 1024 * 1024;
 
 export type IGitStatusCode =
   | "M" // modified
@@ -25,71 +33,196 @@ function toGitStatusCode(s: string): IGitStatusCode {
 }
 
 export type IGitStatusEntry = {
-  path: string;
-  status: IGitStatusCode;
-  renameFrom?: string;
+  readonly path: string;
+  readonly status: IGitStatusCode;
+  readonly contentFingerprint: string | null;
+  readonly renameFrom?: string;
 };
 
 export type IGitSnapshot = {
-  headSha: string | null;
-  entries: IGitStatusEntry[];
-  hash: string;
+  readonly headSha: string | null;
+  readonly entries: readonly IGitStatusEntry[];
+  readonly hash: string;
 };
 
 function runGit(
   args: string[],
   cwd: string
 ): { stdout: string; stderr: string; code: number | null } {
-  const proc = spawnSync("git", args, { cwd, encoding: "utf-8" });
+  const proc = spawnSync("git", ["-c", "core.fsmonitor=false", ...args], {
+    cwd,
+    encoding: "utf-8",
+    env: buildSanitizedGitProcessEnv(),
+  });
   return {
-    stdout: (proc.stdout ?? "").trim(),
+    stdout: proc.stdout ?? "",
     stderr: (proc.stderr ?? "").trim(),
     code: proc.status,
   };
 }
 
+function assertRequiredGitProjectRoot(projectRoot: string): void {
+  const result = runGit(["rev-parse", "--show-toplevel"], projectRoot);
+  let actualRoot: string | null = null;
+  try {
+    if (result.code === 0 && result.stdout.trim().length > 0) {
+      actualRoot = realpathSync(result.stdout.trim());
+    }
+  } catch {
+    actualRoot = null;
+  }
+  const expectedRoot = realpathSync(projectRoot);
+  if (actualRoot !== expectedRoot) {
+    throw new AppError("Git repository root does not match the selected project.", ERR_GIT_DELTA, {
+      projectRoot: expectedRoot,
+      actualRoot,
+      command: "git -c core.fsmonitor=false rev-parse --show-toplevel",
+      code: result.code,
+      stderr: result.stderr.slice(0, 1_000),
+    });
+  }
+}
+
 function getHeadSha(cwd: string): string | null {
   const r = runGit(["rev-parse", "--verify", "HEAD"], cwd);
-  if (r.code !== 0 || !r.stdout) return null;
-  return r.stdout;
+  const headSha = r.stdout.trim();
+  if (r.code !== 0 || headSha.length === 0) return null;
+  return headSha;
 }
 
-function parsePorcelainLine(line: string): IGitStatusEntry | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-  const xy = trimmed.slice(0, 2);
-  const rest = trimmed.slice(2).trim();
-  if (rest.includes(" -> ")) {
-    const idx = rest.indexOf(" -> ");
-    const fromPath = rest.slice(0, idx).trim();
-    const toPath = rest.slice(idx + 4).trim();
-    if (toPath) {
-      const statusStr = xy[0] === "R" || xy[0] === "C" ? (xy[0] === "R" ? "R" : "C") : "M";
-      return {
-        path: toPath,
-        status: toGitStatusCode(statusStr),
-        renameFrom: fromPath || undefined,
-      };
+function parsePorcelainRecords(output: string): Array<Omit<IGitStatusEntry, "contentFingerprint">> {
+  const tokens = output.split("\0");
+  const entries: Array<Omit<IGitStatusEntry, "contentFingerprint">> = [];
+  let index = 0;
+  while (index < tokens.length) {
+    const record = tokens[index];
+    index += 1;
+    if (record === undefined || record.length < 4 || record[2] !== " ") continue;
+    const xy = record.slice(0, 2);
+    const path = record.slice(3);
+    if (path.length === 0) continue;
+    const statusValue =
+      xy === "??"
+        ? "??"
+        : xy === "!!"
+          ? "!!"
+          : xy.includes("U")
+            ? "U"
+            : xy[0] === "R" || xy[0] === "C"
+              ? xy[0]
+              : (xy.trim()[0] ?? "M");
+    const status = toGitStatusCode(statusValue);
+    if (status === "R" || status === "C") {
+      const renameFrom = tokens[index];
+      index += 1;
+      entries.push({ path, status, ...(renameFrom ? { renameFrom } : {}) });
+      continue;
     }
+    entries.push({ path, status });
   }
-  const path = rest;
-  if (!path) return null;
-  const statusStr = xy === "??" ? "??" : xy === "!!" ? "!!" : (xy[0] ?? "M");
-  return { path, status: toGitStatusCode(statusStr) };
+  return entries;
 }
 
-function buildHash(headSha: string | null, entries: IGitStatusEntry[]): string {
+function isStewardRuntimePath(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/").toLowerCase();
+  return normalized === ".steward" || normalized.startsWith(".steward/");
+}
+
+function buildHash(headSha: string | null, entries: readonly IGitStatusEntry[]): string {
   const payload = JSON.stringify({
     headSha,
-    entries: entries.map((e) => [e.path, e.status, e.renameFrom]).sort(),
+    entries: entries
+      .map((entry) => [entry.path, entry.status, entry.renameFrom, entry.contentFingerprint])
+      .sort(),
   });
   return createHash("sha256").update(payload).digest("hex").slice(0, 32);
 }
 
-export function collectGitSnapshot(projectRoot: string): IGitSnapshot {
+function hashValue(value: string | Buffer): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function metadataFingerprint(args: {
+  fileType: "directory" | "file" | "other" | "symlink";
+  mode: number;
+  modifiedAtMs: number;
+  size: number;
+  symlinkTargetHash?: string;
+}): string {
+  return hashValue(JSON.stringify(args));
+}
+
+function resolveContainedPath(projectRoot: string, path: string): string | null {
+  const fullPath = resolve(projectRoot, path);
+  const relativePath = relative(projectRoot, fullPath);
+  if (relativePath === "" || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    return null;
+  }
+  return fullPath;
+}
+
+export function fingerprintGitProjectPath(projectRoot: string, path: string): string | null {
+  const fullPath = resolveContainedPath(projectRoot, path);
+  if (fullPath === null) return null;
+
+  try {
+    const stat = lstatSync(fullPath);
+    if (stat.isSymbolicLink()) {
+      return metadataFingerprint({
+        fileType: "symlink",
+        mode: stat.mode,
+        modifiedAtMs: stat.mtimeMs,
+        size: stat.size,
+        symlinkTargetHash: hashValue(readlinkSync(fullPath)),
+      });
+    }
+
+    const fileType = stat.isFile() ? "file" : stat.isDirectory() ? "directory" : "other";
+    const metadata = {
+      fileType,
+      mode: stat.mode,
+      modifiedAtMs: stat.mtimeMs,
+      size: stat.size,
+    } as const;
+    const mustUseMetadata =
+      !stat.isFile() ||
+      stat.size > MAX_CONTENT_FINGERPRINT_BYTES ||
+      isLikelyBinaryGitPath(path) ||
+      isGeneratedOrDependencyGitPath(path);
+    if (mustUseMetadata) return metadataFingerprint(metadata);
+    return hashValue(readFileSync(fullPath));
+  } catch {
+    return null;
+  }
+}
+
+function fingerprintWorktreeEntry(
+  projectRoot: string,
+  entry: Omit<IGitStatusEntry, "contentFingerprint">
+): string | null {
+  if (entry.status === "D") return null;
+  return (
+    fingerprintGitProjectPath(projectRoot, entry.path) ?? hashValue("worktree-entry-unreadable")
+  );
+}
+
+function collectGitSnapshotInternal(projectRoot: string, failOnStatusError: boolean): IGitSnapshot {
+  if (failOnStatusError) assertRequiredGitProjectRoot(projectRoot);
   const headSha = getHeadSha(projectRoot);
-  const r = runGit(["status", "--porcelain=v1", "-uall"], projectRoot);
+  const r = runGit(["status", "--porcelain=v1", "-z", "-uall"], projectRoot);
   if (r.code !== 0) {
+    if (failOnStatusError) {
+      throw new AppError(
+        "Git status failed while capturing required project evidence.",
+        ERR_GIT_DELTA,
+        {
+          projectRoot,
+          command: "git status --porcelain=v1 -z -uall",
+          code: r.code,
+          stderr: r.stderr.slice(0, 1_000),
+        }
+      );
+    }
     getRuntimeLogger().warn({
       event: GIT_SNAPSHOT_STATUS_FAILED,
       projectRoot,
@@ -102,13 +235,28 @@ export function collectGitSnapshot(projectRoot: string): IGitSnapshot {
       hash: buildHash(headSha, []),
     };
   }
-  const lines = r.stdout.split("\n").filter(Boolean);
   const entries: IGitStatusEntry[] = [];
-  for (const line of lines) {
-    const entry = parsePorcelainLine(line);
-    if (!entry) continue;
-    entries.push(entry);
+  for (const parsedEntry of parsePorcelainRecords(r.stdout)) {
+    if (
+      isStewardRuntimePath(parsedEntry.path) ||
+      (parsedEntry.renameFrom !== undefined && isStewardRuntimePath(parsedEntry.renameFrom))
+    ) {
+      continue;
+    }
+    entries.push({
+      ...parsedEntry,
+      contentFingerprint: fingerprintWorktreeEntry(projectRoot, parsedEntry),
+    });
   }
   const hash = buildHash(headSha, entries);
   return { headSha, entries, hash };
+}
+
+export function collectGitSnapshot(projectRoot: string): IGitSnapshot {
+  return collectGitSnapshotInternal(projectRoot, false);
+}
+
+/** Next-commitment decisions require trustworthy change detection and therefore fail closed. */
+export function collectRequiredGitSnapshot(projectRoot: string): IGitSnapshot {
+  return collectGitSnapshotInternal(projectRoot, true);
 }

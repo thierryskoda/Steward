@@ -22,6 +22,10 @@ import { ERR_AGENT_FAILED } from "../error-codes.js";
 import { getRuntimeLogger, logError } from "../logger.js";
 import { jsonrepair } from "jsonrepair";
 import { repairJsonOutput } from "./repair-json-output.js";
+import type { ILLMProvider } from "./llm-provider.types.js";
+import type { IReadOnlyMcpServer } from "./llm-provider.types.js";
+import { convertZodSchemaToJsonSchema } from "./zod-json-schema.js";
+import type { IJsonSchema } from "./json-schema.types.js";
 
 /** Thrown when agent returned success but output was empty. Callers may treat as "no findings". */
 export class AgentEmptyOutputError extends Error {
@@ -49,13 +53,66 @@ function prependStructuredAgentReplyContract<TInput, TOutput>(
   return buildStructuredAgentPromptPrefix(agent) + prompt;
 }
 
-export async function runStructuredAgent<TInput, TOutput>(args: {
+type IRunStructuredAgentArgs<TInput, TOutput> = {
   agent: IAgentSpec<TInput, TOutput>;
   input: TInput;
   workspace: string;
   resumeChatId?: string;
-}): Promise<TOutput> {
-  const { agent, input, workspace, resumeChatId } = args;
+};
+
+export async function runStructuredAgent<TInput, TOutput>(
+  args: IRunStructuredAgentArgs<TInput, TOutput>
+): Promise<TOutput> {
+  return runStructuredAgentWithProvider({
+    ...args,
+    resumeChatId: args.resumeChatId,
+    llmProvider: getLlmProvider(),
+    deadlineAt: undefined,
+  });
+}
+
+type IRunStructuredAgentWithProviderArgs<TInput, TOutput> = {
+  agent: IAgentSpec<TInput, TOutput>;
+  input: TInput;
+  workspace: string;
+  resumeChatId: string | undefined;
+  llmProvider: ILLMProvider;
+  deadlineAt: number | undefined;
+  isolatedCodexHome?: string;
+  readOnlyMcpServer?: IReadOnlyMcpServer;
+};
+
+export async function runStructuredAgentWithProvider<TInput, TOutput>(
+  args: IRunStructuredAgentWithProviderArgs<TInput, TOutput>
+): Promise<TOutput> {
+  return runStructuredAgentWithProviderOutputSchema({ ...args, outputJsonSchema: undefined });
+}
+
+export async function runSchemaConstrainedAgentWithProvider<TInput, TOutput>(
+  args: IRunStructuredAgentWithProviderArgs<TInput, TOutput>
+): Promise<TOutput> {
+  return runStructuredAgentWithProviderOutputSchema({
+    ...args,
+    outputJsonSchema: convertZodSchemaToJsonSchema(args.agent.outputSchema),
+  });
+}
+
+async function runStructuredAgentWithProviderOutputSchema<TInput, TOutput>(
+  args: IRunStructuredAgentWithProviderArgs<TInput, TOutput> & {
+    outputJsonSchema: IJsonSchema | undefined;
+  }
+): Promise<TOutput> {
+  const {
+    agent,
+    input,
+    workspace,
+    resumeChatId,
+    llmProvider,
+    deadlineAt,
+    outputJsonSchema,
+    isolatedCodexHome,
+    readOnlyMcpServer,
+  } = args;
   const log = getRuntimeLogger();
   const parsedInput = agent.inputSchema.parse(input);
   const prompt = prependStructuredAgentReplyContract(agent.buildPrompt(parsedInput), agent);
@@ -78,13 +135,17 @@ export async function runStructuredAgent<TInput, TOutput>(args: {
     promptTokensApprox: estimatePromptTokens(prompt),
     requestId,
   });
-  const result = await getLlmProvider().runStructured({
+  const result = await llmProvider.runStructured({
     prompt,
     model,
     workspace,
+    outputJsonSchema,
     resumeConversationId: resumeChatId,
     agentTmpDir,
+    isolatedCodexHome,
+    readOnlyMcpServer,
     requestId,
+    deadlineAt,
   });
 
   const env = loadEnv();
@@ -169,6 +230,10 @@ export async function runStructuredAgent<TInput, TOutput>(args: {
           receivedOutput: raw,
           parseError: args.parseError,
           workspace,
+          llmProvider,
+          deadlineAt,
+          agentTmpDir,
+          isolatedCodexHome,
         });
         let parsedRaw: unknown;
         try {

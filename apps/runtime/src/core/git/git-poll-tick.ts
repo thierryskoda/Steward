@@ -27,10 +27,17 @@ export type IGitPollerRepoScopeConfig = {
 };
 
 /** Args passed to the composition-root callback when a git poll tick has work to do. */
+export type IProjectChangeBatch = Readonly<{
+  fingerprint: string;
+  snapshot: IGitSnapshot;
+  changedPaths: readonly string[];
+}>;
+
 export type IGitPollerOnTickArgs = {
   projectRoot: string;
   config: IGitPollerRepoScopeConfig;
-  changedPaths: string[];
+  changeBatch: IProjectChangeBatch;
+  genericChangedPaths: string[];
   shouldRegenExclude: boolean;
   hasReactiveWork: boolean;
   hasProactiveWork: boolean;
@@ -64,6 +71,28 @@ type IGitPollerState = {
   pendingHash: string | null;
   intervalId: ReturnType<typeof setInterval> | null;
 };
+
+function createProjectChangeBatch(snapshot: IGitSnapshot): IProjectChangeBatch {
+  const entries = Object.freeze(
+    snapshot.entries.map((entry) =>
+      Object.freeze({
+        ...entry,
+      })
+    )
+  );
+  const pinnedSnapshot: IGitSnapshot = Object.freeze({
+    ...snapshot,
+    entries,
+  });
+  const changedPaths = Object.freeze(
+    entries.filter((entry) => !entry.path.startsWith(".steward/")).map((entry) => entry.path)
+  );
+  return Object.freeze({
+    fingerprint: pinnedSnapshot.hash,
+    snapshot: pinnedSnapshot,
+    changedPaths,
+  });
+}
 
 function runGitPollerTick(state: IGitPollerState, deps: IGitPollerDeps): void {
   const projectRoot = deps.getProjectRoot();
@@ -117,13 +146,14 @@ function runGitPollerTick(state: IGitPollerState, deps: IGitPollerDeps): void {
     snapshot,
     config,
   });
-  const changedPaths = delta.map((f) => f.path);
+  const changeBatch = createProjectChangeBatch(snapshot);
+  const genericChangedPaths = delta.map((file) => file.path);
   const snapshotEntries = snapshot.entries;
   const shouldRegenExclude =
     loadEnv().CTO_REGENERATE_CONFIG_ON_GIT_POLL && hasScopeStructureChanges(snapshotEntries);
 
   const hasReactiveWork =
-    changedPaths.length > 0 && snapshot.hash !== state.lastProcessedHashForReactive;
+    genericChangedPaths.length > 0 && snapshot.hash !== state.lastProcessedHashForReactive;
   const hasProactiveWork = now - state.lastProactiveRunAt >= quietWindowMs;
 
   if (!hasReactiveWork && !hasProactiveWork && !shouldRegenExclude) {
@@ -148,8 +178,8 @@ function runGitPollerTick(state: IGitPollerState, deps: IGitPollerDeps): void {
   void runGitPollerTickWork(
     state,
     deps,
-    snapshot,
-    changedPaths,
+    changeBatch,
+    genericChangedPaths,
     shouldRegenExclude,
     hasReactiveWork,
     hasProactiveWork
@@ -159,8 +189,8 @@ function runGitPollerTick(state: IGitPollerState, deps: IGitPollerDeps): void {
 async function runGitPollerTickWork(
   state: IGitPollerState,
   deps: IGitPollerDeps,
-  snapshot: IGitSnapshot,
-  changedPaths: string[],
+  changeBatch: IProjectChangeBatch,
+  genericChangedPaths: string[],
   shouldRegenExclude: boolean,
   hasReactiveWork: boolean,
   hasProactiveWork: boolean
@@ -172,12 +202,13 @@ async function runGitPollerTickWork(
     await deps.onTick({
       projectRoot,
       config,
-      changedPaths,
+      changeBatch,
+      genericChangedPaths,
       shouldRegenExclude,
       hasReactiveWork,
       hasProactiveWork,
     });
-    if (hasReactiveWork) state.lastProcessedHashForReactive = snapshot.hash;
+    if (hasReactiveWork) state.lastProcessedHashForReactive = changeBatch.fingerprint;
     if (hasProactiveWork) state.lastProactiveRunAt = Date.now();
   } finally {
     state.inFlight = false;

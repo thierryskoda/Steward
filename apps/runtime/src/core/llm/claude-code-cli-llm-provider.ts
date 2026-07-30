@@ -103,6 +103,7 @@ export function createClaudeCodeCliLlmProvider(): ILLMProvider {
         executionMode: "ask",
         agentTmpDir: args.agentTmpDir,
         requestId: args.requestId,
+        deadlineAt: args.deadlineAt,
       });
       const result = cliResultToLlmRunResult(cliResult);
       rememberStartedSession(args.resumeConversationId, result);
@@ -120,6 +121,7 @@ export function createClaudeCodeCliLlmProvider(): ILLMProvider {
         requestContext: toCliRequestContext(args.requestContext),
         agentTmpDir: args.agentTmpDir,
         requestId: args.requestId,
+        deadlineAt: undefined,
       });
       const result = cliResultToLlmRunResult(cliResult);
       rememberStartedSession(args.resumeConversationId, result);

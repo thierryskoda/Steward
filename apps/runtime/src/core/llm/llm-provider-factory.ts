@@ -32,7 +32,9 @@ export function getLlmProvider(): ILLMProvider {
 export function createLlmProvider(): ILLMProvider {
   const id: ILLMProviderId = loadEnv().CTO_LLM_PROVIDER;
   if (id === "cursor_cli") return createCursorCliLlmProvider();
-  if (id === "codex_cli") return createCodexCliLlmProvider();
+  if (id === "codex_cli") {
+    return createCodexCliLlmProvider({ structuredSecurity: "standard" });
+  }
   if (id === "claude_code_cli") return createClaudeCodeCliLlmProvider();
   if (id === "antigravity_cli") {
     throw new AppError(

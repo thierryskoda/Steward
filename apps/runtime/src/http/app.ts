@@ -21,6 +21,8 @@ import {
   MOUNTED_ROUTE_KEYS as CONFIG_MOUNTED,
 } from "./routes/config.routes.js";
 import { MOUNTED_ROUTE_KEYS as SCANNING_MOUNTED } from "./routes/scanning.routes.js";
+import { MOUNTED_ROUTE_KEYS as DOCUMENTATION_REFRESH_MOUNTED } from "./routes/documentation-refresh.routes.js";
+import { MOUNTED_ROUTE_KEYS as NEXT_COMMITMENT_MOUNTED } from "./routes/next-commitment.routes.js";
 
 const BODY_LIMIT = 64 * 1024;
 const REQUEST_TIMEOUT_MS = 30000;
@@ -40,6 +42,8 @@ export type ICreateExpressAppRouters = {
   rulesRouter: Router;
   findingsRouter: Router;
   scanningRouter: Router;
+  documentationRefreshRouter: Router;
+  nextCommitmentRouter: Router;
 };
 
 export function createExpressApp(args: {
@@ -65,6 +69,8 @@ export function createExpressApp(args: {
   app.use(args.routers.runtimeRouter);
   app.use(args.routers.scanningRouter);
   app.use(createReadinessGate(args.getRuntimeStatus));
+  app.use(args.routers.documentationRefreshRouter);
+  app.use(args.routers.nextCommitmentRouter);
   app.use(args.routers.inboxRouter);
   app.use(args.routers.itemsRouter);
   app.use(args.routers.rulesRouter);
@@ -75,6 +81,8 @@ export function createExpressApp(args: {
     ...HEALTH_MOUNTED,
     ...RUNTIME_MOUNTED,
     ...SCANNING_MOUNTED,
+    ...DOCUMENTATION_REFRESH_MOUNTED,
+    ...NEXT_COMMITMENT_MOUNTED,
     ...INBOX_MOUNTED,
     ...ITEMS_MOUNTED,
     ...RULES_MOUNTED,

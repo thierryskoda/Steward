@@ -39,6 +39,14 @@ contextBridge.exposeInMainWorld("ctoBridge", {
   getRuntimeStatus: (projectRoot: string) => ipcRenderer.invoke("get_runtime_status", projectRoot),
   getScanningStatus: (projectRoot: string, requestId?: string) =>
     ipcRenderer.invoke("get_scanning_status", projectRoot, requestId),
+  getDocumentationRefreshStatus: (projectRoot: string, requestId?: string) =>
+    ipcRenderer.invoke("get_documentation_refresh_status", projectRoot, requestId),
+  getNextCommitmentStatus: (projectRoot: string, requestId?: string) =>
+    ipcRenderer.invoke("get_next_commitment_status", projectRoot, requestId),
+  startNextCommitmentRun: (projectRoot: string, requestId?: string) =>
+    ipcRenderer.invoke("start_next_commitment_run", projectRoot, requestId),
+  startNextCommitmentInCodex: (runId: string, requestId?: string) =>
+    ipcRenderer.invoke("start_next_commitment_in_codex", runId, requestId),
   getRulesSnapshot: (projectRoot: string, requestId?: string) =>
     ipcRenderer.invoke("get_rules_snapshot", projectRoot, requestId),
   getConfig: (projectRoot: string, requestId?: string) =>

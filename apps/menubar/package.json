@@ -10,7 +10,7 @@
     "build:electron": "rm -rf dist-electron && tsc -p tsconfig.electron.json && cp -r electron/icons dist-electron/",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test electron/registry.test.ts src/ui/shell-state.test.ts src/utils/query-keys.test.ts src/features/kanban/kanban-ui.store.test.ts"
+    "test": "tsx --test electron/registry.test.ts electron/runtime-orchestrator.test.ts electron/codex-task-client.test.ts electron/next-commitment-codex-task.test.ts src/ui/shell-state.test.ts src/ui/finding-detail-view.test.tsx src/utils/query-keys.test.ts src/features/kanban/kanban-ui.store.test.ts src/features/settings/settings-panel.test.tsx"
   },
   "dependencies": {
     "@steward/contracts": "workspace:*",

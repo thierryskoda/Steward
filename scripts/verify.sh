@@ -47,7 +47,8 @@ run_provider_gate() {
     exit 1
   fi
   run_full_gate || exit 1
-  run_step "agent-cli-contract" "command -v agent >/dev/null && pnpm run agent:contract || (echo 'agent not found, skipping Cursor contract' && true)" || exit 1
+  run_step "codex-cli-contract" "pnpm run agent:contract" || exit 1
+  run_step "cursor-agent-cli-contract" "command -v agent >/dev/null && pnpm run agent:contract:cursor || (echo 'agent not found, skipping Cursor contract' && true)" || exit 1
   run_step "provider-e2e" "pnpm e2e:provider" || exit 1
 }
 

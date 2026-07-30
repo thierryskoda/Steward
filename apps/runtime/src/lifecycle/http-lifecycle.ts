@@ -16,6 +16,14 @@ import { rulesRoutes, type IRulesRouteDeps } from "../http/routes/rules.routes.j
 import { findingsRoutes, type IFindingsRouteDeps } from "../http/routes/findings.routes.js";
 import { type IConfigRouteDeps } from "../http/routes/config.routes.js";
 import { scanningRoutes, type IScanningRouteDeps } from "../http/routes/scanning.routes.js";
+import {
+  documentationRefreshRoutes,
+  type IDocumentationRefreshRouteDeps,
+} from "../http/routes/documentation-refresh.routes.js";
+import {
+  nextCommitmentRoutes,
+  type INextCommitmentRouteDeps,
+} from "../http/routes/next-commitment.routes.js";
 import { writeEndpointFile } from "../core/endpoint-file.js";
 import { registerRuntime, heartbeatRuntime } from "../core/runtime-registry.js";
 import { RUNTIME_LIFECYCLE_HEARTBEAT, HTTP_SERVER_LISTENING } from "../core/runtime-log-events.js";
@@ -34,7 +42,9 @@ export function startHttpServer(
   findingsDeps: IFindingsRouteDeps,
   configDeps: IConfigRouteDeps,
   serverDeps: IHttpServerDeps,
-  scanningDeps: IScanningRouteDeps
+  scanningDeps: IScanningRouteDeps,
+  documentationRefreshDeps: IDocumentationRefreshRouteDeps,
+  nextCommitmentDeps: INextCommitmentRouteDeps
 ): ReturnType<typeof createHttpServer> {
   const cleanupRef = { current: null as (() => void) | null };
   const runtimeRouter = runtimeRoutes({
@@ -46,6 +56,8 @@ export function startHttpServer(
   const rulesRouter = rulesRoutes(rulesDeps);
   const findingsRouter = findingsRoutes(findingsDeps);
   const scanningRouter = scanningRoutes(scanningDeps);
+  const documentationRefreshRouter = documentationRefreshRoutes(documentationRefreshDeps);
+  const nextCommitmentRouter = nextCommitmentRoutes(nextCommitmentDeps);
   const app = createExpressApp({
     getRuntimeStatus: getRuntimeState,
     routers: {
@@ -55,6 +67,8 @@ export function startHttpServer(
       rulesRouter,
       findingsRouter,
       scanningRouter,
+      documentationRefreshRouter,
+      nextCommitmentRouter,
     },
     configDeps,
   });

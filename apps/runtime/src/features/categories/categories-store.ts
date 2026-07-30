@@ -302,12 +302,19 @@ export function listAgentRunningFindingsForCategory(
   return listFindingsByStatusForCategory(projectRoot, categoryId, STATUS.AGENT_RUNNING);
 }
 
-export function listAllFindingsForCategory(
+export function listFindingsByStatuses(
   projectRoot: string,
-  categoryId: string
+  statuses: readonly IItemStatus[]
 ): ICategoryItem[] {
   void projectRoot;
-  return readRows("WHERE category_id = ?", [categoryId]);
+  if (statuses.length === 0) return [];
+  const placeholders = statuses.map(() => "?").join(", ");
+  return readRows(`WHERE status IN (${placeholders})`, [...statuses]);
+}
+
+export function listAllFindings(projectRoot: string): ICategoryItem[] {
+  void projectRoot;
+  return readRows("", []);
 }
 
 export function getFindingByCategoryAndId(
@@ -321,16 +328,13 @@ export function getFindingByCategoryAndId(
   return item ? { item } : null;
 }
 
-export function getFindingByIdAcrossCategories(
+export function getFindingById(
   projectRoot: string,
-  categoryIds: string[],
   id: string
 ): { categoryId: string; item: ICategoryItem } | null {
-  for (const categoryId of categoryIds) {
-    const found = getFindingByCategoryAndId(projectRoot, categoryId, id);
-    if (found) return { categoryId, item: found.item };
-  }
-  return null;
+  void projectRoot;
+  const item = readRows("WHERE id = ?", [id])[0];
+  return item === undefined ? null : { categoryId: item.categoryId, item };
 }
 
 function transitionSlug(from: IItemStatus, to: IItemStatus): IActivitySlug | null {
@@ -460,6 +464,12 @@ export function createFinding(args: {
 export function saveFinding(projectRoot: string, item: ICategoryItem): void {
   void projectRoot;
   insertOrReplaceFinding(item);
+}
+
+export function deleteFindingById(projectRoot: string, id: string): boolean {
+  void projectRoot;
+  const result = getRuntimeDb().prepare("DELETE FROM findings WHERE id = ?").run(id);
+  return result.changes === 1;
 }
 
 export function patchFindingFromAgent(args: {

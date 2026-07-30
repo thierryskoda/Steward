@@ -46,6 +46,8 @@ describe("sqlite migrations", () => {
     expect(tableNames).toContain("option_hints");
     expect(tableNames).toContain("continual_learning_index");
     expect(tableNames).toContain("scanning_status");
+    expect(tableNames).toContain("documentation_refresh_runs");
+    expect(tableNames).toContain("next_commitment_runs");
     expect(tableNames).not.toContain("project_activity");
 
     const indexRows = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as {
@@ -55,6 +57,9 @@ describe("sqlite migrations", () => {
     expect(indexNames).toContain("findings_status_idx");
     expect(indexNames).toContain("findings_category_dedupe_key_idx");
     expect(indexNames).toContain("rules_status_idx");
+    expect(indexNames).toContain("documentation_refresh_runs_status_idx");
+    expect(indexNames).toContain("documentation_refresh_runs_input_idx");
+    expect(indexNames).toContain("next_commitment_runs_active_idx");
 
     expect(stewardStateDbPath(projectRoot)).toMatch(/\.steward\/state\.db$/);
   });

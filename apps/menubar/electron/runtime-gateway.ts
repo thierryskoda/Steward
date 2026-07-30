@@ -7,10 +7,16 @@ import {
   RulesSnapshotResponseSchema,
   RuntimeStatusResponseSchema,
   ScanningStatusResponseSchema,
+  DocumentationRefreshStatusResponseSchema,
+  NextCommitmentRunResponseSchema,
+  NextCommitmentStatusResponseSchema,
   type ICtoItem,
   type IConfigResponse,
   type IRuntimeStatusResponse,
   type IScanningStatusResponse,
+  type IDocumentationRefreshStatusResponse,
+  type INextCommitmentRunResponse,
+  type INextCommitmentStatusResponse,
   type IInboxFindingItem,
   type IInitializeConfigBody,
   type IInboxRuleItem,
@@ -343,6 +349,58 @@ export async function getScanningStatus(
     responseSchema: ScanningStatusResponseSchema,
     fallbackMessage: "Scanning status fetch failed",
     nullOnStatuses: [404],
+  });
+}
+
+export async function getDocumentationRefreshStatus(
+  connection: IConnection,
+  requestId?: string
+): Promise<IDocumentationRefreshStatusResponse> {
+  const response = await safeFetchJson({
+    connection,
+    path: ROUTES.DOCUMENTATION_REFRESH_STATUS.path,
+    method: "GET",
+    requestId,
+    responseSchema: DocumentationRefreshStatusResponseSchema,
+    fallbackMessage: "Documentation refresh status fetch failed",
+  });
+  if (response === null) {
+    throw new Error("Documentation refresh status response was unexpectedly empty");
+  }
+  return response;
+}
+
+export async function getNextCommitmentStatus(
+  connection: IConnection,
+  requestId?: string
+): Promise<INextCommitmentStatusResponse> {
+  const response = await safeFetchJson({
+    connection,
+    path: ROUTES.NEXT_COMMITMENT_STATUS.path,
+    method: "GET",
+    requestId,
+    responseSchema: NextCommitmentStatusResponseSchema,
+    fallbackMessage: "Next commitment status fetch failed",
+  });
+  if (response === null) {
+    throw new Error("Next commitment status response was unexpectedly empty");
+  }
+  return response;
+}
+
+export async function startNextCommitmentRun(
+  connection: IConnection,
+  requestId?: string
+): Promise<INextCommitmentRunResponse> {
+  return safeFetchJsonWithBody({
+    connection,
+    path: ROUTES.NEXT_COMMITMENT_RUNS.path,
+    method: "POST",
+    body: "{}",
+    requestId,
+    timeoutMs: undefined,
+    responseSchema: NextCommitmentRunResponseSchema,
+    fallbackMessage: "Starting next commitment review failed",
   });
 }
 

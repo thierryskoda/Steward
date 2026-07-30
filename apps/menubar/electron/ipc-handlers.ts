@@ -11,6 +11,8 @@ import { getLogsDir, writeHostLog, writeUiLog } from "./logs-service.js";
 import { setStatusErrorOverride } from "./status-error-state.js";
 import type { IHostController } from "./host-controller.js";
 import type { IProjectRuntimeController } from "./project-runtime-controller.js";
+import type { ICodexTaskClient } from "./codex-task-client.js";
+import { submitNextCommitmentToCodex } from "./next-commitment-codex-task.js";
 
 const IPC_ERROR_PREFIX = "CTO_IPC_ERROR:";
 
@@ -59,8 +61,9 @@ function registerIpcHandler<TArgs extends unknown[], TResult>(
 export function registerIpcHandlers(args: {
   hostController: IHostController;
   projectRuntimeController: IProjectRuntimeController;
+  codexTaskClient: ICodexTaskClient;
 }): void {
-  const { hostController, projectRuntimeController } = args;
+  const { hostController, projectRuntimeController, codexTaskClient } = args;
 
   registerIpcHandler("list_projects", () => projectRuntimeController.listProjects());
   registerIpcHandler("get_selected_project", () => hostController.getSelectedProjectRoot());
@@ -215,6 +218,45 @@ export function registerIpcHandlers(args: {
     if (!conn) return null;
     return gateway.getScanningStatus(conn, requestId);
   });
+  registerIpcHandler(
+    "get_documentation_refresh_status",
+    (_event, projectRoot: string, requestId?: string) => {
+      const conn = getConnection(projectRoot);
+      if (!conn) return null;
+      return gateway.getDocumentationRefreshStatus(conn, requestId);
+    }
+  );
+  registerIpcHandler(
+    "get_next_commitment_status",
+    (_event, projectRoot: string, requestId?: string) => {
+      const conn = getConnection(projectRoot);
+      if (!conn) return null;
+      return gateway.getNextCommitmentStatus(conn, requestId);
+    }
+  );
+  registerIpcHandler(
+    "start_next_commitment_run",
+    (_event, projectRoot: string, requestId?: string) => {
+      const conn = getConnection(projectRoot);
+      if (!conn) throw new Error("No connection for project root: " + projectRoot);
+      return gateway.startNextCommitmentRun(conn, requestId);
+    }
+  );
+  registerIpcHandler(
+    "start_next_commitment_in_codex",
+    async (_event, requestedRunId: unknown, requestId?: string) => {
+      return submitNextCommitmentToCodex(
+        { requestedRunId, requestId },
+        {
+          getSelectedProjectRoot: () => hostController.getSelectedProjectRoot(),
+          getConnection,
+          getNextCommitmentStatus: gateway.getNextCommitmentStatus,
+          codexTaskClient,
+          openExternal: (deepLink) => shell.openExternal(deepLink),
+        }
+      );
+    }
+  );
   registerIpcHandler("get_rules_snapshot", (_event, projectRoot: string, requestId?: string) => {
     const conn = getConnection(projectRoot);
     if (!conn) throw new Error("No connection for project root: " + projectRoot);

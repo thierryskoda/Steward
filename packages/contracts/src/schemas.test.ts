@@ -12,6 +12,9 @@ import {
   parseRejectBody,
   RuntimeStatusResponseSchema,
   ScanningStatusResponseSchema,
+  DocumentationRefreshStatusResponseSchema,
+  CodexTaskSubmissionSchema,
+  NextCommitmentStatusResponseSchema,
   ScanningStatusSchema,
   InboxItemSchema,
   InboxFindingItemSchema,
@@ -21,6 +24,7 @@ import {
   FindingItemSchema,
   ImplementationResultSchema,
   UndoResultSchema,
+  DOCUMENTATION_REFRESH_CATEGORY_ID,
 } from "./schemas.js";
 import { ROUTES, ROUTES_KEYS_SKIP_STARTUP_ASSERTION, buildRoute } from "./routes.js";
 
@@ -130,6 +134,156 @@ describe("schemas.test.ts", () => {
       assert.strictEqual(ScanningStatusResponseSchema.parse({ status: "paused" }).status, "paused");
       assert.throws(() => ScanningStatusSchema.parse("running"));
       assert.throws(() => ScanningStatusResponseSchema.parse({ status: "stopped" }));
+    });
+  });
+
+  describe("DocumentationRefreshStatusResponseSchema — latest bounded documentation review state", () => {
+    it("parses never-checked and every durable run status", () => {
+      assert.deepStrictEqual(
+        DocumentationRefreshStatusResponseSchema.parse({
+          status: "never-checked",
+          lastCheckedAt: null,
+          findingId: null,
+        }),
+        { status: "never-checked", lastCheckedAt: null, findingId: null }
+      );
+      for (const status of [
+        "queued",
+        "running",
+        "clean",
+        "needs-review",
+        "blocked",
+        "failed",
+        "superseded",
+      ] as const) {
+        assert.strictEqual(
+          DocumentationRefreshStatusResponseSchema.parse({
+            status,
+            lastCheckedAt: status === "queued" ? null : 1_000,
+            findingId: status === "needs-review" || status === "blocked" ? "finding-1" : null,
+          }).status,
+          status
+        );
+      }
+    });
+
+    it("rejects a never-checked response that claims prior evidence", () => {
+      assert.throws(() =>
+        DocumentationRefreshStatusResponseSchema.parse({
+          status: "never-checked",
+          lastCheckedAt: 1_000,
+          findingId: null,
+        })
+      );
+    });
+  });
+
+  describe("CodexTaskSubmissionSchema — a real Codex task accepted for execution", () => {
+    it("accepts a submitted task and rejects draft-only or malformed thread results", () => {
+      assert.deepStrictEqual(
+        CodexTaskSubmissionSchema.parse({
+          status: "submitted",
+          threadId: "019f8b86-1c1b-7151-9370-4223f0c42824",
+          title: "Steward — Validate grocery matching",
+        }),
+        {
+          status: "submitted",
+          threadId: "019f8b86-1c1b-7151-9370-4223f0c42824",
+          title: "Steward — Validate grocery matching",
+        }
+      );
+      assert.throws(() =>
+        CodexTaskSubmissionSchema.parse({
+          status: "draft",
+          threadId: "not-a-thread-id",
+          title: "Steward draft",
+        })
+      );
+    });
+  });
+
+  describe("NextCommitmentStatusResponseSchema — one evidence-backed project recommendation or an explicit no-op", () => {
+    it("accepts never-run and a matching recommendation result", () => {
+      assert.deepStrictEqual(NextCommitmentStatusResponseSchema.parse({ status: "never-run" }), {
+        status: "never-run",
+      });
+
+      const response = NextCommitmentStatusResponseSchema.parse({
+        status: "recommendation",
+        runId: "8d640d73-ed21-4911-a88f-1028b561c6b7",
+        createdAt: 1_000,
+        startedAt: 1_010,
+        completedAt: 1_020,
+        stopReason: null,
+        result: {
+          status: "recommendation",
+          summary:
+            "Finish the partially completed retailer matching flow before starting discovery work.",
+          inspectedProjectPaths: ["README.md", "src/retailer-matching.ts"],
+          inspectedTaskIds: ["task-grocery"],
+          uncertainties: [],
+          evidence: [
+            {
+              source: "project-file",
+              location: "src/retailer-matching.ts",
+              finding:
+                "The matching flow has a concrete unfinished branch with an existing caller.",
+            },
+            {
+              source: "codex-task",
+              location: "task-grocery",
+              finding: "Recent work established the flow but stopped before completing validation.",
+            },
+          ],
+          commitment: {
+            title: "Finish retailer matching validation",
+            whyNow:
+              "This completes active work and unlocks reliable offer discovery without a new system.",
+            expectedOutcome:
+              "Retailer matches are validated end to end against the existing acceptance path.",
+            definitionOfDone: ["The unfinished path works", "Focused verification passes"],
+            firstAction:
+              "Open the unfinished matcher and reproduce the remaining validation failure.",
+          },
+          whyThisWins:
+            "It has stronger evidence and nearer user value than the other plausible work.",
+          strongestCounterargument:
+            "Fresh offer discovery could create value sooner if matching is already sufficient.",
+          alternatives: [],
+        },
+      });
+
+      assert.strictEqual(response.status, "recommendation");
+    });
+
+    it("rejects a run status whose nested result represents a different outcome", () => {
+      assert.throws(() =>
+        NextCommitmentStatusResponseSchema.parse({
+          status: "recommendation",
+          runId: "8d640d73-ed21-4911-a88f-1028b561c6b7",
+          createdAt: 1_000,
+          startedAt: 1_010,
+          completedAt: 1_020,
+          stopReason: null,
+          result: {
+            status: "none",
+            summary: "No supported commitment clearly wins from the available evidence today.",
+            inspectedProjectPaths: ["README.md"],
+            inspectedTaskIds: [],
+            uncertainties: [],
+            evidence: [
+              {
+                source: "project-file",
+                location: "README.md",
+                finding: "The documented work is complete and no active constraint is identified.",
+              },
+            ],
+            reason: "The available candidates are either complete or too speculative to recommend.",
+            reconsiderWhen:
+              "Re-run after a goal, blocker, or partially completed workflow changes.",
+          },
+        })
+      );
     });
   });
 
@@ -318,6 +472,35 @@ describe("schemas.test.ts", () => {
           createdAt: 6000,
         })
       );
+    });
+
+    it("accepts one complete option only for the canonical documentation report category", () => {
+      const result = InboxFindingItemSchema.parse({
+        type: "finding",
+        categoryId: DOCUMENTATION_REFRESH_CATEGORY_ID,
+        id: "documentation-report-1",
+        problem: {
+          title: "README command drift",
+          locations: ["README.md", "package.json"],
+          technicalFinding: "README references a removed package script.",
+          ...humanProblemFields(),
+        },
+        decision: {
+          options: [
+            {
+              id: "A",
+              name: "Correct README command",
+              technicalPlan: "Replace only the obsolete README command.",
+              ruleConsideration: "The recommendation stays report-only and minimal.",
+              ...humanOptionFields("Correct the obsolete command without expanding the docs."),
+            },
+          ],
+        },
+        createdAt: 6000,
+      });
+
+      assert.strictEqual(result.categoryId, DOCUMENTATION_REFRESH_CATEGORY_ID);
+      assert.strictEqual(result.decision.options.length, 1);
     });
 
     it("rejects finding missing human fields so inbox never shows half-baked items", () => {

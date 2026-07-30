@@ -157,6 +157,8 @@ export const AGENT_QUEUE_WARN_WAIT =
   "A request had to wait in the queue for an unusually long time before starting.";
 export const AGENT_QUEUE_AGE_CAP_REJECTED =
   "A request was cancelled because it spent too much time waiting in the queue.";
+export const AGENT_QUEUE_DEADLINE_REJECTED =
+  "A request was cancelled because its absolute execution deadline elapsed in the queue.";
 export const AGENT_QUEUE_HEALTH_ALERT =
   "The request queue is getting backed up; things might be running slower than usual.";
 export const AGENT_QUEUE_SHUTDOWN_COMPLETED =

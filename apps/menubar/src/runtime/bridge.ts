@@ -1,10 +1,14 @@
 import type { ICtoBridge, IProjectWithStatus } from "../preload-bridge.js";
 import type {
   IAgentCliProvider,
+  ICodexTaskSubmission,
   ICtoItem,
   IConfigResponse,
   IRuntimeStatusResponse,
   IScanningStatusResponse,
+  IDocumentationRefreshStatusResponse,
+  INextCommitmentRunResponse,
+  INextCommitmentStatusResponse,
   IInboxFindingItem,
   IInitializeConfigBody,
   IInboxRuleItem,
@@ -174,6 +178,43 @@ export function getRuntimeStatus(projectRoot: string): Promise<IRuntimeStatusRes
 
 export function getScanningStatus(projectRoot: string): Promise<IScanningStatusResponse | null> {
   return getBridge().getScanningStatus(projectRoot).catch(normalizeIpcError);
+}
+
+export function getDocumentationRefreshStatus(
+  projectRoot: string
+): Promise<IDocumentationRefreshStatusResponse | null> {
+  return runIpcOperation({
+    operation: "documentation_refresh_status_get",
+    run: (requestId) =>
+      getBridge().getDocumentationRefreshStatus(projectRoot, requestId).catch(normalizeIpcError),
+  });
+}
+
+export function getNextCommitmentStatus(
+  projectRoot: string
+): Promise<INextCommitmentStatusResponse | null> {
+  return runIpcOperation({
+    operation: "next_commitment_status_get",
+    run: (requestId) =>
+      getBridge().getNextCommitmentStatus(projectRoot, requestId).catch(normalizeIpcError),
+  });
+}
+
+export function startNextCommitmentRun(projectRoot: string): Promise<INextCommitmentRunResponse> {
+  return runIpcOperation({
+    operation: "next_commitment_run_start",
+    run: (requestId) =>
+      getBridge().startNextCommitmentRun(projectRoot, requestId).catch(normalizeIpcError),
+  });
+}
+
+export function startNextCommitmentInCodex(runId: string): Promise<ICodexTaskSubmission> {
+  return runIpcOperation({
+    operation: "next_commitment_start_in_codex",
+    metadata: { runId },
+    run: (requestId) =>
+      getBridge().startNextCommitmentInCodex(runId, requestId).catch(normalizeIpcError),
+  });
 }
 
 export function getLogsDir(): Promise<string> {

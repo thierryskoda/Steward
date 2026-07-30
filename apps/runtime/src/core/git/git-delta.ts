@@ -2,37 +2,12 @@ import { existsSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { spawnSync } from "child_process";
 import type { IGitStatusEntry, IGitSnapshot } from "./git-snapshot.js";
+import { isLikelyBinaryGitPath } from "./git-content-policy.js";
+import { AppError } from "../app-error.js";
+import { ERR_GIT_DELTA } from "../error-codes.js";
+import { buildSanitizedGitProcessEnv } from "./git-process-env.js";
 
 const MAX_PATCH_CHARS = 50000;
-const BINARY_EXTENSIONS = new Set([
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".webp",
-  ".ico",
-  ".svg",
-  ".pdf",
-  ".woff",
-  ".woff2",
-  ".ttf",
-  ".otf",
-  ".eot",
-  ".mp4",
-  ".webm",
-  ".mp3",
-  ".wav",
-  ".ogg",
-  ".zip",
-  ".tar",
-  ".gz",
-  ".rar",
-  ".7z",
-  ".exe",
-  ".dll",
-  ".so",
-  ".dylib",
-]);
 
 export type IGitDeltaFile = {
   path: string;
@@ -48,20 +23,16 @@ function runGit(
   args: string[],
   cwd: string
 ): { stdout: string; stderr: string; code: number | null } {
-  const proc = spawnSync("git", args, { cwd, encoding: "utf-8" });
+  const proc = spawnSync("git", ["-c", "core.fsmonitor=false", ...args], {
+    cwd,
+    encoding: "utf-8",
+    env: buildSanitizedGitProcessEnv(),
+  });
   return {
     stdout: (proc.stdout ?? "").trim(),
     stderr: (proc.stderr ?? "").trim(),
     code: proc.status,
   };
-}
-
-function isLikelyBinary(path: string): boolean {
-  const lower = path.toLowerCase();
-  for (const ext of BINARY_EXTENSIONS) {
-    if (lower.endsWith(ext)) return true;
-  }
-  return false;
 }
 
 function parseNumstatLine(line: string): { added: number; deleted: number } {
@@ -84,7 +55,7 @@ function truncatePatch(patch: string): string {
 
 function enrichTrackedFile(projectRoot: string, entry: IGitStatusEntry): IGitDeltaFile {
   const path = entry.path;
-  const isBinary = isLikelyBinary(path);
+  const isBinary = isLikelyBinaryGitPath(path);
   let added = 0;
   let deleted = 0;
   let patch: string | null = null;
@@ -101,7 +72,10 @@ function enrichTrackedFile(projectRoot: string, entry: IGitStatusEntry): IGitDel
     };
   }
 
-  const numstat = runGit(["diff", "-M", "--numstat", "HEAD", "--", path], projectRoot);
+  const numstat = runGit(
+    ["diff", "--no-ext-diff", "--no-textconv", "-M", "--numstat", "HEAD", "--", path],
+    projectRoot
+  );
   if (numstat.code === 0 && numstat.stdout) {
     const first = numstat.stdout.split("\n")[0];
     if (first && !first.includes("Bin")) {
@@ -113,7 +87,17 @@ function enrichTrackedFile(projectRoot: string, entry: IGitStatusEntry): IGitDel
 
   if (!isBinary) {
     const diff = runGit(
-      ["diff", "-M", "--unified=0", "--no-color", "HEAD", "--", path],
+      [
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-M",
+        "--unified=0",
+        "--no-color",
+        "HEAD",
+        "--",
+        path,
+      ],
       projectRoot
     );
     if (diff.code === 0 && diff.stdout) {
@@ -146,7 +130,7 @@ function enrichTrackedFile(projectRoot: string, entry: IGitStatusEntry): IGitDel
 function enrichUntrackedFile(projectRoot: string, entry: IGitStatusEntry): IGitDeltaFile {
   const path = entry.path;
   const fullPath = join(projectRoot, path);
-  const isBinary = isLikelyBinary(path);
+  const isBinary = isLikelyBinaryGitPath(path);
   let patch: string | null = null;
 
   if (existsSync(fullPath)) {
@@ -194,10 +178,69 @@ export function buildGitDelta(
   return result;
 }
 
-export function hasScopeStructureChanges(entries: IGitStatusEntry[]): boolean {
+export function hasScopeStructureChanges(entries: readonly IGitStatusEntry[]): boolean {
   return entries.some((e) => {
-    if (e.path.startsWith(".steward/")) return false;
-    if (e.path === ".gitignore") return true;
+    const normalizedPath = e.path.toLowerCase();
+    if (normalizedPath.startsWith(".steward/")) return false;
+    if (normalizedPath === ".gitignore") return true;
     return e.status === "A" || e.status === "D";
   });
+}
+
+function runGitPathCommand(args: string[], projectRoot: string): string[] {
+  const result = spawnSync("git", ["-c", "core.fsmonitor=false", ...args], {
+    cwd: projectRoot,
+    encoding: "utf8",
+    env: buildSanitizedGitProcessEnv(),
+  });
+  if (result.status !== 0) {
+    throw new AppError("Git path inventory command failed", ERR_GIT_DELTA, {
+      projectRoot,
+      command: `git ${args.join(" ")}`,
+      code: result.status,
+      stderr: (result.stderr ?? "").trim().slice(0, 1_000),
+    });
+  }
+  return (result.stdout ?? "").split("\0").filter((value) => value.length > 0);
+}
+
+export function listGitProjectFiles(projectRoot: string): string[] {
+  return [
+    ...new Set(runGitPathCommand(["ls-files", "-co", "--exclude-standard", "-z"], projectRoot)),
+  ].sort((left, right) => left.localeCompare(right));
+}
+
+export function listChangedPathsBetweenGitHeads(args: {
+  projectRoot: string;
+  fromHeadSha: string | null;
+  toHeadSha: string | null;
+}): string[] {
+  if (args.toHeadSha === null || args.fromHeadSha === args.toHeadSha) return [];
+  if (args.fromHeadSha === null) {
+    return runGitPathCommand(
+      ["ls-tree", "-r", "--name-only", "-z", args.toHeadSha],
+      args.projectRoot
+    ).sort((left, right) => left.localeCompare(right));
+  }
+  const tokens = runGitPathCommand(
+    ["diff", "--name-status", "-z", "-M", args.fromHeadSha, args.toHeadSha, "--"],
+    args.projectRoot
+  );
+  const paths = new Set<string>();
+  let index = 0;
+  while (index < tokens.length) {
+    const status = tokens[index];
+    index += 1;
+    if (status === undefined) break;
+    const firstPath = tokens[index];
+    index += 1;
+    if (firstPath === undefined) break;
+    paths.add(firstPath);
+    if (status.startsWith("R") || status.startsWith("C")) {
+      const secondPath = tokens[index];
+      index += 1;
+      if (secondPath !== undefined) paths.add(secondPath);
+    }
+  }
+  return [...paths].sort((left, right) => left.localeCompare(right));
 }

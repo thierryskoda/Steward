@@ -1,8 +1,12 @@
 import type {
   IAgentCliProvider,
+  ICodexTaskSubmission,
   ICtoItem,
   IConfigResponse,
   IRuntimeStatusResponse,
+  IDocumentationRefreshStatusResponse,
+  INextCommitmentRunResponse,
+  INextCommitmentStatusResponse,
   IInboxFindingItem,
   IInitializeConfigBody,
   IInboxRuleItem,
@@ -57,6 +61,19 @@ export type ICtoBridge = {
     projectRoot: string,
     requestId?: string
   ) => Promise<import("@steward/contracts/schemas").IScanningStatusResponse | null>;
+  getDocumentationRefreshStatus: (
+    projectRoot: string,
+    requestId?: string
+  ) => Promise<IDocumentationRefreshStatusResponse | null>;
+  getNextCommitmentStatus: (
+    projectRoot: string,
+    requestId?: string
+  ) => Promise<INextCommitmentStatusResponse | null>;
+  startNextCommitmentRun: (
+    projectRoot: string,
+    requestId?: string
+  ) => Promise<INextCommitmentRunResponse>;
+  startNextCommitmentInCodex: (runId: string, requestId?: string) => Promise<ICodexTaskSubmission>;
   getRulesSnapshot: (projectRoot: string, requestId?: string) => Promise<IRulesSnapshotResponse>;
   getConfig: (projectRoot: string, requestId?: string) => Promise<IConfigResponse | null>;
   updateConfig: (

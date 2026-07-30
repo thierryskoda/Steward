@@ -2,6 +2,9 @@
  * Runtime composition root. Wires env, SQLite state, HTTP server, lifecycle services, and category/rules/continual-learning features. Single bootstrap entry; no other module should perform app-level wiring.
  */
 import "dotenv/config";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { DOCUMENTATION_REFRESH_CATEGORY_ID, STATUS } from "@steward/contracts/schemas";
 import { loadEnv } from "./core/env.js";
 import { createSqliteCheckpointStore } from "./core/sources/sqlite-checkpoint-store.js";
 import type { ITranscriptIngestionService } from "./core/sources/transcript-ingestion-service.js";
@@ -11,19 +14,18 @@ import {
   type IProcessUndoCategoryDeps,
 } from "./features/categories/undo-category-processor.js";
 import {
-  getFindingByIdAcrossCategories,
-  listAllFindingsForCategory,
-  listReviewFindingsForCategory,
-  listApprovedFindingsForCategory,
+  createFinding,
+  deleteFindingById,
+  getFindingById,
+  listAllFindings,
+  listFindingsByStatuses,
+  patchFindingFromAgent,
+  saveFinding,
   setCategoriesStoreDeps,
   type ICategoriesStoreDeps,
   transitionFindingStatus,
 } from "./features/categories/categories-store.js";
-import {
-  getActionableCategories,
-  loadCategoryRegistry,
-  setCategoryRegistryDeps,
-} from "./features/categories/category-registry.js";
+import { setCategoryRegistryDeps } from "./features/categories/category-registry.js";
 import { buildLocationsExcerpt } from "./features/categories/build-locations-excerpt.js";
 import { getCurrentContextFingerprintForItem } from "./features/categories/context-fingerprint.js";
 import { readSourceDocs } from "./features/categories/rules-snapshot.js";
@@ -79,6 +81,7 @@ import {
   type IRepoScopeConfigLike,
 } from "./core/startup-phases.js";
 import { createLlmProvider, setLlmProvider } from "./core/llm/llm-provider-factory.js";
+import { createCodexCliLlmProvider } from "./core/llm/codex-cli-llm-provider.js";
 import {
   createTranscriptFetcher,
   setTranscriptFetcher,
@@ -109,6 +112,17 @@ import type { IConfigRouteConfig } from "./http/routes/config.routes.js";
 import { openRuntimeDb } from "./core/db/sqlite-connection.js";
 import { runSqliteMigrations } from "./core/db/sqlite-migrations.js";
 import { setRuntimeDb } from "./core/db/runtime-db.js";
+import { getProjectKey } from "./core/project-key.js";
+import { createDocumentationRefreshRunner } from "./features/documentation-refresh/documentation-refresh-runner.js";
+import {
+  getLatestCompletedDocumentationRefreshRun,
+  getLatestDocumentationRefreshRun,
+  recoverDocumentationRefreshRuns,
+} from "./features/documentation-refresh/documentation-refresh-store.js";
+import { DOCUMENTATION_REFRESH_RECOVERY_COMPLETED } from "./features/documentation-refresh/documentation-refresh-log-events.js";
+import { createNextCommitmentRunner } from "./features/next-commitment/next-commitment-runner.js";
+import { recoverInterruptedNextCommitmentRuns } from "./features/next-commitment/next-commitment-store.js";
+import { NEXT_COMMITMENT_RECOVERY_COMPLETED } from "./features/next-commitment/next-commitment-log-events.js";
 
 const STALE_SWEEP_INTERVAL_MS = 60000;
 
@@ -176,6 +190,32 @@ async function runRuntime(): Promise<void> {
   const staleSweepIntervalRef = { current: null as ReturnType<typeof setInterval> | null };
   const repoScopeConfigRef = { current: null as IRepoScopeConfig | null };
   const gitPollStopRef = { current: null as (() => void) | null };
+  const documentationRefreshIntakeActiveRef = { current: false };
+  const projectRoot = getProjectRoot();
+  const documentationRefreshRunner = createDocumentationRefreshRunner({
+    projectRoot,
+    projectKey: getProjectKey(projectRoot),
+    ownerId: `runtime-${process.pid}-${getProjectKey(projectRoot)}`,
+    llmProvider: createCodexCliLlmProvider({ structuredSecurity: "standard" }),
+    findingStore: {
+      listOpenFindings: (root) =>
+        listFindingsByStatuses(root, [STATUS.NEEDS_REVIEW, STATUS.APPROVED]).filter(
+          (finding) => finding.categoryId === DOCUMENTATION_REFRESH_CATEGORY_ID
+        ),
+      createFinding,
+      saveFinding,
+      patchFinding: patchFindingFromAgent,
+      deleteFinding: deleteFindingById,
+    },
+    shouldContinue: () => documentationRefreshIntakeActiveRef.current,
+  });
+  const nextCommitmentRunner = createNextCommitmentRunner({
+    projectRoot,
+    codexHome: loadEnv().CODEX_HOME ?? join(homedir(), ".codex"),
+    llmProvider: createCodexCliLlmProvider({ structuredSecurity: "project-isolated" }),
+    getConfiguredContextPatterns: () => repoScopeConfigRef.current?.projectContext ?? [],
+    shouldContinue: () => getRuntimeState().state === "running",
+  });
   const continualLearningIdleByPath = new Map<string, IContinualLearningIdleState>();
   const continualLearningIntervalRef = { current: null as ReturnType<typeof setInterval> | null };
   const cleanupRefs: ICleanupRefs = {
@@ -198,6 +238,7 @@ async function runRuntime(): Promise<void> {
   const repoScopePhaseDeps = buildRepoScopePhaseDeps();
 
   function stopScanningSources(): void {
+    documentationRefreshIntakeActiveRef.current = false;
     transcriptIngestionServiceRef.current?.stop();
     transcriptIngestionServiceRef.current = null;
     gitPollStopRef.current?.();
@@ -273,8 +314,15 @@ async function runRuntime(): Promise<void> {
           continualLearningIntervalRef,
           getRepoScopeConfig
         ),
-      startGitPollerWithGetters: (getRepoScopeConfig, setRepoScopeConfig, onTick) =>
-        startGitPollerFromMain(getRepoScopeConfig, setRepoScopeConfig, gitPollStopRef, onTick),
+      startGitPollerWithGetters: (getRepoScopeConfig, setRepoScopeConfig, onTick) => {
+        documentationRefreshIntakeActiveRef.current = true;
+        startGitPollerFromMain(getRepoScopeConfig, setRepoScopeConfig, gitPollStopRef, onTick);
+        const stopGitPoller = gitPollStopRef.current;
+        gitPollStopRef.current = () => {
+          documentationRefreshIntakeActiveRef.current = false;
+          stopGitPoller?.();
+        };
+      },
       ensureDirsAndRecoveryWithGetter: (getRepoScopeConfig) =>
         ensureDirsAndRecovery(getRepoScopeConfig),
       runStaleImplementingSweepWithGetter: (getRepoScopeConfig) =>
@@ -293,6 +341,21 @@ async function runRuntime(): Promise<void> {
         repoScopePhaseDeps.ensureRulesSnapshot(projectRoot, config),
       ensureProjectContextSnapshot: (projectRoot, config) =>
         repoScopePhaseDeps.ensureProjectContextSnapshot(projectRoot, config),
+      runDocumentationRefresh: async (changeBatch) => {
+        await documentationRefreshRunner.run(changeBatch);
+      },
+      recoverDocumentationRefreshRuns: () => {
+        const result = recoverDocumentationRefreshRuns({
+          now: Date.now(),
+          staleAfterMs: 10 * 60 * 1_000,
+        });
+        getRuntimeLogger().info({
+          event: DOCUMENTATION_REFRESH_RECOVERY_COMPLETED,
+          projectKey: getProjectKey(projectRoot),
+          requeued: result.requeued,
+          failed: result.failed,
+        });
+      },
     };
   }
 
@@ -347,15 +410,12 @@ async function runRuntime(): Promise<void> {
   };
 
   const inboxDeps = {
-    loadCategoryRegistry,
-    listReviewFindingsForCategory,
-    listApprovedFindingsForCategory,
+    listFindingsByStatuses,
     listReviewRules,
   };
   const itemsDeps = {
-    loadCategoryRegistry,
     listAllRules,
-    listAllFindingsForCategory,
+    listAllFindings,
   };
   const rulesDeps = {
     findRuleById,
@@ -363,8 +423,7 @@ async function runRuntime(): Promise<void> {
     loadSnapshot,
   };
   const findingsDeps = {
-    getActionableCategories,
-    getFindingByIdAcrossCategories,
+    getFindingById,
     transitionFindingStatus,
     shouldLearnFromRejectedFinding: (projectRoot: string): boolean =>
       readRepoScopeConfigFromDisk(projectRoot)?.features.rulesWorkflowEnabled === true,
@@ -428,6 +487,17 @@ async function runRuntime(): Promise<void> {
         stopScanningSources();
       }),
   };
+  const documentationRefreshStatusDeps = {
+    getLatestRun: () => {
+      const run = getLatestDocumentationRefreshRun();
+      return run === null ? null : { status: run.status, findingId: run.findingId };
+    },
+    getLastCheckedAt: () => getLatestCompletedDocumentationRefreshRun()?.completedAt ?? null,
+  };
+  const nextCommitmentDeps = {
+    getLatestRun: () => nextCommitmentRunner.getLatestCurrent(),
+    startRun: () => nextCommitmentRunner.start(),
+  };
 
   getRuntimeLogger().info({ event: RUNTIME_INIT_STARTED });
 
@@ -437,6 +507,12 @@ async function runRuntime(): Promise<void> {
     setRuntimeDb(db);
     updateRuntimeState({ phase: "migrating-db", phaseStartedAt: Date.now() });
     runSqliteMigrations(db);
+    const nextCommitmentRecovery = recoverInterruptedNextCommitmentRuns({ now: Date.now() });
+    getRuntimeLogger().info({
+      event: NEXT_COMMITMENT_RECOVERY_COMPLETED,
+      recovered: nextCommitmentRecovery.recovered,
+      projectRoot,
+    });
 
     try {
       await runRepoScopePhase((config: IRepoScopeConfigLike) => {
@@ -461,7 +537,9 @@ async function runRuntime(): Promise<void> {
           findingsDeps,
           configDeps,
           serverDeps,
-          scanningDeps
+          scanningDeps,
+          documentationRefreshStatusDeps,
+          nextCommitmentDeps
         );
         return;
       }
@@ -475,7 +553,9 @@ async function runRuntime(): Promise<void> {
       findingsDeps,
       configDeps,
       serverDeps,
-      scanningDeps
+      scanningDeps,
+      documentationRefreshStatusDeps,
+      nextCommitmentDeps
     );
     const repoScopeConfigForPhases = repoScopeConfigRef.current;
     if (repoScopeConfigForPhases === null) {

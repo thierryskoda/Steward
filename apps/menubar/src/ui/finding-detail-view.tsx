@@ -26,14 +26,25 @@ export type IFindingDetailInput = {
   selectedOptionId: "A" | "B" | "C" | undefined;
 };
 
-export type IFindingDetailViewProps = {
+type IFindingDetailViewCommonProps = {
   input: IFindingDetailInput;
-  onApprove: (selectedOptionId: "A" | "B" | "C" | undefined) => void;
-  onReject: (rejectReason: string) => void;
   mode?: "interactive" | "readOnly";
   /** Inbox API guarantees human fields; stored findings may omit them until humanized. */
   enforceInboxFields?: boolean;
 };
+
+export type IFindingDetailViewProps = IFindingDetailViewCommonProps &
+  (
+    | {
+        variant?: "finding";
+        onApprove: (selectedOptionId: "A" | "B" | "C" | undefined) => void;
+        onReject: (rejectReason: string) => void;
+      }
+    | {
+        variant: "documentationReport";
+        onDismiss: () => void;
+      }
+  );
 
 function assertInboxProblemFields(input: IFindingDetailInput): void {
   if (input.humanSummary === undefined) {
@@ -75,13 +86,8 @@ function isOptionHumanComplete(o: IFindingOptionInput): boolean {
   );
 }
 
-export function FindingDetailView({
-  input,
-  onApprove,
-  onReject,
-  mode = "interactive",
-  enforceInboxFields = true,
-}: IFindingDetailViewProps): JSX.Element {
+export function FindingDetailView(props: IFindingDetailViewProps): JSX.Element {
+  const { input, mode = "interactive", enforceInboxFields = true } = props;
   if (enforceInboxFields) {
     assertInboxProblemFields(input);
     assertInboxOptionFields(input.options);
@@ -89,10 +95,11 @@ export function FindingDetailView({
 
   const options = input.options;
   const readOnly = mode === "readOnly";
+  const documentationReport = props.variant === "documentationReport";
   const [selectedOptionId, setSelectedOptionId] = useState<"A" | "B" | "C" | undefined>(
     input.selectedOptionId
   );
-  const canApprove = readOnly || options.length === 0 || selectedOptionId !== undefined;
+  const canApprove = options.length === 0 || selectedOptionId !== undefined;
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const problemComplete =
@@ -114,6 +121,7 @@ export function FindingDetailView({
             <Badge variant="outline" className="font-mono normal-case">
               {getCategoryLabel(input.displayType)}
             </Badge>
+            {documentationReport ? <Badge variant="outline">Read-only report</Badge> : null}
           </div>
           {input.showTitle !== false ? (
             <h3 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-4xl">
@@ -176,7 +184,7 @@ export function FindingDetailView({
 
             <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-5 dark:border-zinc-700 dark:bg-zinc-900/50">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Decision
+                {documentationReport ? "Review question" : "Decision"}
               </p>
               <p className="text-lg font-semibold leading-snug text-zinc-900 dark:text-zinc-50">
                 {input.humanDecisionQuestion}
@@ -185,87 +193,119 @@ export function FindingDetailView({
           </section>
         ) : null}
 
-        <div className="space-y-6">
-          {options.map((option) => {
-            const selected = option.id === selectedOptionId;
-            const humanComplete = isOptionHumanComplete(option);
-            return (
-              <div key={option.id} className="space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                    Option {option.id}
-                  </span>
-                  {selected ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
-                      <Check className="h-3.5 w-3.5" />
-                      Selected
+        {documentationReport && options[0] ? (
+          <section
+            className="space-y-4 border-y border-zinc-200 py-5 dark:border-zinc-800"
+            aria-label="Recommended documentation correction"
+          >
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
+                Recommended correction
+              </p>
+              <p className="mt-2 text-[15px] leading-relaxed text-zinc-800 dark:text-zinc-100">
+                {options[0].humanSummary}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                Advisory boundary
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+                {options[0].humanTradeoff}
+              </p>
+            </div>
+          </section>
+        ) : (
+          <div className="space-y-6">
+            {options.map((option) => {
+              const selected = option.id === selectedOptionId;
+              const humanComplete = isOptionHumanComplete(option);
+              return (
+                <div key={option.id} className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                      Option {option.id}
                     </span>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  disabled={readOnly || (!enforceInboxFields && !humanComplete)}
-                  onClick={() => !readOnly && humanComplete && setSelectedOptionId(option.id)}
-                  className={cn(
-                    "w-full rounded-xl border text-left transition-all",
-                    selected
-                      ? "border-indigo-500 bg-indigo-50/80 shadow-md ring-1 ring-indigo-500/30 dark:border-indigo-500 dark:bg-indigo-950/40"
-                      : "border-zinc-200 bg-white hover:border-indigo-300 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-indigo-600",
-                    readOnly && "cursor-default hover:border-zinc-200 dark:hover:border-zinc-700",
-                    !humanComplete && !enforceInboxFields && "opacity-90"
-                  )}
-                >
-                  <div className="space-y-5 p-5 sm:p-6">
-                    {!humanComplete && !enforceInboxFields ? (
-                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-                        Human-readable fields are not available for this option yet.
-                      </p>
+                    {selected ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
+                        <Check className="h-3.5 w-3.5" />
+                        Selected
+                      </span>
                     ) : null}
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
-                        Proposal
-                      </p>
-                      <p className="mt-2 text-[15px] leading-relaxed text-zinc-800 dark:text-zinc-100">
-                        {humanComplete || enforceInboxFields ? option.humanSummary : "-"}
-                      </p>
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                          Choose this if
-                        </p>
-                        <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-                          {humanComplete || enforceInboxFields ? option.humanChooseThisIf : "-"}
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                          Tradeoff
-                        </p>
-                        <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-                          {humanComplete || enforceInboxFields ? option.humanTradeoff : "-"}
-                        </p>
-                      </div>
-                    </div>
                   </div>
-                </button>
-              </div>
-            );
-          })}
-        </div>
+                  <button
+                    type="button"
+                    disabled={readOnly || (!enforceInboxFields && !humanComplete)}
+                    onClick={() => !readOnly && humanComplete && setSelectedOptionId(option.id)}
+                    className={cn(
+                      "w-full rounded-xl border text-left transition-all",
+                      selected
+                        ? "border-indigo-500 bg-indigo-50/80 shadow-md ring-1 ring-indigo-500/30 dark:border-indigo-500 dark:bg-indigo-950/40"
+                        : "border-zinc-200 bg-white hover:border-indigo-300 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-indigo-600",
+                      readOnly && "cursor-default hover:border-zinc-200 dark:hover:border-zinc-700",
+                      !humanComplete && !enforceInboxFields && "opacity-90"
+                    )}
+                  >
+                    <div className="space-y-5 p-5 sm:p-6">
+                      {!humanComplete && !enforceInboxFields ? (
+                        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                          Human-readable fields are not available for this option yet.
+                        </p>
+                      ) : null}
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
+                          Proposal
+                        </p>
+                        <p className="mt-2 text-[15px] leading-relaxed text-zinc-800 dark:text-zinc-100">
+                          {humanComplete || enforceInboxFields ? option.humanSummary : "-"}
+                        </p>
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                            Choose this if
+                          </p>
+                          <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+                            {humanComplete || enforceInboxFields ? option.humanChooseThisIf : "-"}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                            Tradeoff
+                          </p>
+                          <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+                            {humanComplete || enforceInboxFields ? option.humanTradeoff : "-"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {!readOnly ? (
+      {documentationReport && !readOnly ? (
+        <div className="sticky bottom-0 z-20 mt-8 flex justify-end border-t border-zinc-200/80 bg-white/90 px-1 py-4 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/90">
+          <Button variant="outline" type="button" onClick={props.onDismiss}>
+            Dismiss report
+          </Button>
+        </div>
+      ) : !readOnly && props.variant !== "documentationReport" ? (
         <div className="sticky bottom-0 z-20 mt-8 border-t border-zinc-200/80 bg-white/80 px-1 py-4 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/85">
           {rejectOpen ? (
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-              <input
-                type="text"
-                className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-[15px] text-zinc-900 outline-none ring-zinc-900 focus:ring-2 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
-                placeholder="Reason for rejection"
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-              />
+              <label className="min-w-0 flex-1 text-[13px] font-semibold text-zinc-700 dark:text-zinc-300">
+                Reason for rejection
+                <input
+                  type="text"
+                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-[15px] font-normal text-zinc-900 outline-none ring-zinc-900 focus:ring-2 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                />
+              </label>
               <div className="flex gap-2">
                 <Button variant="ghost" type="button" onClick={() => setRejectOpen(false)}>
                   Cancel
@@ -273,7 +313,7 @@ export function FindingDetailView({
                 <Button
                   variant="danger"
                   type="button"
-                  onClick={() => onReject(rejectReason.trim())}
+                  onClick={() => props.onReject(rejectReason.trim())}
                 >
                   Confirm reject
                 </Button>
@@ -293,7 +333,7 @@ export function FindingDetailView({
               <Button
                 type="button"
                 disabled={!canApprove}
-                onClick={() => onApprove(selectedOptionId)}
+                onClick={() => props.onApprove(selectedOptionId)}
               >
                 Approve selected
               </Button>

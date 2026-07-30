@@ -1,6 +1,7 @@
 import { AppError } from "../../core/app-error.js";
 import { ERR_DEPS_NOT_SET } from "../../core/error-codes.js";
 import { getProjectRoot } from "../../core/project-root.js";
+import { DOCUMENTATION_REFRESH_CATEGORY_ID } from "@steward/contracts/schemas";
 import { loadSnapshot } from "./rules-snapshot.js";
 
 export type ICategoryRegistryEntry = {
@@ -42,7 +43,9 @@ export function loadCategoryRegistry(): ICategoryRegistryEntry[] {
   if (!snapshot || snapshot.categories.length === 0) {
     return [];
   }
-  return [...snapshot.categories];
+  return snapshot.categories.filter(
+    (category) => category.categoryId !== DOCUMENTATION_REFRESH_CATEGORY_ID
+  );
 }
 
 /** Categories for finding workflow. */

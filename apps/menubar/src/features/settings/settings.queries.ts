@@ -5,6 +5,9 @@ import type {
   IConfigResponse,
   IRuntimeStatusResponse,
   IScanningStatusResponse,
+  IDocumentationRefreshStatusResponse,
+  INextCommitmentRunResponse,
+  INextCommitmentStatusResponse,
   IInitializeConfigBody,
   IRulesSnapshotResponse,
   IUpdateConfigBody,
@@ -14,6 +17,9 @@ import {
   getConnectionConfig,
   getRuntimeStatus,
   getScanningStatus,
+  getDocumentationRefreshStatus,
+  getNextCommitmentStatus,
+  startNextCommitmentRun,
   getLogsDir,
   getRulesSnapshot,
   initializeProjectConfig,
@@ -67,6 +73,58 @@ export function useScanningStatusQuery(
     queryKey: queryKeys.settings.scanningStatus(selectedRoot ?? "__no-project__"),
     queryFn: () => getScanningStatus(selectedRoot ?? ""),
     enabled: (options?.enabled ?? true) && hasSelectedRoot,
+  });
+}
+
+export function useDocumentationRefreshStatusQuery(
+  options?: IQueryOptions
+): UseQueryResult<IDocumentationRefreshStatusResponse | null, Error> {
+  const { data: selectedRoot } = useSelectedProjectQuery();
+  const { data: runtimeStatus } = useRuntimeStatusQuery();
+  const hasSelectedRoot = selectedRoot != null && selectedRoot !== "";
+  return useQuery({
+    queryKey: queryKeys.settings.documentationRefreshStatus(selectedRoot ?? "__no-project__"),
+    queryFn: () => getDocumentationRefreshStatus(selectedRoot ?? ""),
+    enabled: (options?.enabled ?? true) && hasSelectedRoot && runtimeStatus?.state === "running",
+    refetchInterval: 30_000,
+  });
+}
+
+export function useNextCommitmentQuery(
+  options?: IQueryOptions
+): UseQueryResult<INextCommitmentStatusResponse | null, Error> {
+  const { data: selectedRoot } = useSelectedProjectQuery();
+  const { data: runtimeStatus } = useRuntimeStatusQuery();
+  const hasSelectedRoot = selectedRoot != null && selectedRoot !== "";
+  return useQuery({
+    queryKey: queryKeys.settings.nextCommitment(selectedRoot ?? "__no-project__"),
+    queryFn: () => getNextCommitmentStatus(selectedRoot ?? ""),
+    enabled: (options?.enabled ?? true) && hasSelectedRoot && runtimeStatus?.state === "running",
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "queued" || status === "running" ? 2_000 : false;
+    },
+  });
+}
+
+export function useStartNextCommitmentMutation(): UseMutationResult<
+  INextCommitmentRunResponse,
+  Error,
+  string,
+  unknown
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (projectRoot) => startNextCommitmentRun(projectRoot),
+    onSuccess: (run, projectRoot) => {
+      queryClient.setQueryData<INextCommitmentStatusResponse | null>(
+        queryKeys.settings.nextCommitment(projectRoot),
+        run
+      );
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.nextCommitment(projectRoot),
+      });
+    },
   });
 }
 

@@ -36,6 +36,7 @@ export type IAgentProcessConfig = {
   timeoutMs: number;
   watchdogIdleMs: number;
   killGraceMs: number;
+  deadlineAt: number | undefined;
 };
 
 /** Raw outcome from the process runner before envelope parsing. */

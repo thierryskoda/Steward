@@ -13,11 +13,13 @@ import type {
   ILLMRequestContext,
 } from "./llm-provider.types.js";
 import type { IAgentCliResult } from "./agent-cli-result.types.js";
+import type { ICodexStructuredSecurityMode } from "./codex-cli-process-runner.js";
 import { runCodexCliProcessWithEnv } from "./run-agent-cli-process.js";
 import type {
   IAgentQueueLifecycleCallbacks,
   IAgentRequestContext,
 } from "./run-agent-cli-process.js";
+import { unwrapCodexStructuredOutput } from "./codex-structured-output.js";
 
 const CODEX_LOGICAL_CONVERSATION_PREFIX = "codex-local-";
 
@@ -70,7 +72,9 @@ function isLogicalCodexConversationId(conversationId: string): boolean {
   return conversationId.startsWith(CODEX_LOGICAL_CONVERSATION_PREFIX);
 }
 
-export function createCodexCliLlmProvider(): ILLMProvider {
+export function createCodexCliLlmProvider(input: {
+  structuredSecurity: ICodexStructuredSecurityMode;
+}): ILLMProvider {
   const sessionIdsByLogicalConversationId = new Map<string, string>();
 
   const resolveSessionId = (conversationId: string | undefined): string | undefined => {
@@ -95,12 +99,20 @@ export function createCodexCliLlmProvider(): ILLMProvider {
         workspace: args.workspace,
         resumeSessionId: resolveSessionId(args.resumeConversationId),
         executionMode: "ask",
+        outputJsonSchema: args.outputJsonSchema,
+        securityMode: input.structuredSecurity,
         agentTmpDir: args.agentTmpDir,
+        isolatedCodexHome: args.isolatedCodexHome,
+        readOnlyMcpServer: args.readOnlyMcpServer,
         requestId: args.requestId,
+        deadlineAt: args.deadlineAt,
       });
       const result = cliResultToLlmRunResult(cliResult);
-      rememberSessionId(args.resumeConversationId, result);
-      return result;
+      if (input.structuredSecurity === "standard") {
+        rememberSessionId(args.resumeConversationId, result);
+      }
+      if (!result.success || args.outputJsonSchema === undefined) return result;
+      return { ...result, outputText: unwrapCodexStructuredOutput(result.outputText) };
     },
 
     async runMutation(args: ILLMMutationRunArgs): Promise<ILLMRunResult> {
@@ -110,10 +122,13 @@ export function createCodexCliLlmProvider(): ILLMProvider {
         workspace: args.workspace,
         resumeSessionId: resolveSessionId(args.resumeConversationId),
         executionMode: "force",
+        outputJsonSchema: undefined,
+        securityMode: "standard",
         lifecycleCallbacks: toCliLifecycle(args.lifecycleCallbacks),
         requestContext: toCliRequestContext(args.requestContext),
         agentTmpDir: args.agentTmpDir,
         requestId: args.requestId,
+        deadlineAt: undefined,
       });
       const result = cliResultToLlmRunResult(cliResult);
       rememberSessionId(args.resumeConversationId, result);

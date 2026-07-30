@@ -12,6 +12,8 @@ function createRouters(): ICreateExpressAppRouters {
     rulesRouter: Router(),
     findingsRouter: Router(),
     scanningRouter: Router(),
+    documentationRefreshRouter: Router(),
+    nextCommitmentRouter: Router(),
   };
 }
 
@@ -88,5 +90,21 @@ describe("createExpressApp", () => {
     } finally {
       await close(server);
     }
+  });
+
+  it("accepts the complete canonical router set including manual review routes", () => {
+    const app = createExpressApp({
+      getRuntimeStatus: () => ({
+        pid: 1,
+        state: "running",
+        startedAt: 1,
+        lastHeartbeatAt: 1,
+        lastError: null,
+      }),
+      routers: createRouters(),
+      configDeps: createConfigDeps(),
+    });
+
+    expect(app).toBeDefined();
   });
 });

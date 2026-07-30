@@ -16,7 +16,10 @@ import { FindingDetailView } from "../../ui/finding-detail-view.js";
 import { MessageState } from "../../ui/message-state.js";
 import { SearchIcon } from "../../ui/message-state-icons.js";
 import { Button } from "../../ui/primitives/button.js";
-import type { IInboxFindingItem } from "@steward/contracts/schemas";
+import {
+  DOCUMENTATION_REFRESH_CATEGORY_ID,
+  type IInboxFindingItem,
+} from "@steward/contracts/schemas";
 import { getRuntimeErrorMessage } from "../../ui/errors.js";
 import { ScanningPausedBanner } from "../../ui/scanning-paused-banner.js";
 
@@ -124,6 +127,19 @@ export function CategoriesPanel(): JSX.Element {
     });
   }
 
+  function handleDismissReport(itemId: string): void {
+    setHiddenItemId(itemId);
+    showToast({
+      message: "Report dismissed",
+      durationMs: UNDO_DURATION_MS,
+      onUndo: () => setHiddenItemId(null),
+      onTimeout: () => {
+        rejectMutation.mutate({ itemId, rejectReason: "" });
+        setHiddenItemId(null);
+      },
+    });
+  }
+
   if (!hasItems && isLoading) {
     return (
       <div className={PANEL_CLASS_NAME} role="tabpanel">
@@ -208,7 +224,15 @@ export function CategoriesPanel(): JSX.Element {
         </div>
       ) : null}
       <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-card-overlay dark:border-zinc-800 dark:bg-zinc-900 sm:p-10">
-        <FindingDetailView input={detailInput} onApprove={implementCb} onReject={rejectCb} />
+        {item.categoryId === DOCUMENTATION_REFRESH_CATEGORY_ID ? (
+          <FindingDetailView
+            input={detailInput}
+            variant="documentationReport"
+            onDismiss={() => handleDismissReport(item.id)}
+          />
+        ) : (
+          <FindingDetailView input={detailInput} onApprove={implementCb} onReject={rejectCb} />
+        )}
       </div>
     </div>
   );
